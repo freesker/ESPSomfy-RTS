@@ -7,6 +7,7 @@
 
 #define CONNECT_TIMEOUT 20000
 #define SSID_SCAN_INTERVAL 60000
+#define AP_CLIENT_RETRY_INTERVAL 600000UL // Avec un client attaché au point d'accès, réessayer le réseau toutes les 10 minutes.
 class Network {
   protected:
     unsigned long lastEmit = 0;
@@ -17,6 +18,8 @@ class Network {
     bool _connecting = false;
   public:
     unsigned long lastWifiScan = 0;
+    unsigned long apClientSince = 0;
+    bool apClientStuck();
     bool ethStarted = false;
     bool wifiFallback = false;
     bool softAPOpened = false;

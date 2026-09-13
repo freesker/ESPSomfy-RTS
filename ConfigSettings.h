@@ -77,6 +77,8 @@ class WifiSettings: BaseSettings {
     bool hidden = false;
     char ssid[65] = "";
     char passphrase[65] = "";
+    char apPassphrase[65] = ""; // Clé WPA2 du point d'accès de secours, tirée au premier démarrage.
+    void ensureApPassphrase();
     //bool ssdpBroadcast = true;
     bool begin();
     bool fromJSON(JsonObject &obj);

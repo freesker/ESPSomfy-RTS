@@ -690,7 +690,7 @@ class UIBinder {
             }
             el.selectedIndex = ndx;
         }
-        else if (el instanceof HTMLElement) el.innerHTML = val;
+        else if (el instanceof HTMLElement) el.textContent = val;
     }
     getValue(el, defVal) {
         let val = defVal;

@@ -86,7 +86,7 @@ void Network::loop() {
   if(_apScanning) {
     if(settings.WIFI.hidden ||                                    // This user has elected to use a hidden AP.
       (this->connected() && !settings.WIFI.roaming) ||            // We are already connected and should not be roaming.
-      (this->softAPOpened && WiFi.softAPgetStationNum() != 0) ||  // The Soft AP is open and a user is connected.
+      (this->softAPOpened && WiFi.softAPgetStationNum() != 0 && !this->apClientStuck()) ||  // The Soft AP is open and a user is connected.
       (ctype != conn_types_t::wifi)) {                            // The Ethernet link is up so we should ignore this scan.
       LOG_DLN("Cancelling WiFi STA Scan...");
       _apScanning = false;
@@ -441,8 +441,20 @@ void Network::updateHostname() {
      }
   }
 }
+// Un client attaché au point d'accès de secours bloquait indéfiniment le retour sur le réseau
+// configuré : après AP_CLIENT_RETRY_INTERVAL on tente quand même la connexion.
+bool Network::apClientStuck() {
+  if(!this->softAPOpened || WiFi.softAPgetStationNum() == 0) {
+    this->apClientSince = 0;
+    return false;
+  }
+  if(this->apClientSince == 0) this->apClientSince = millis();
+  if(millis() - this->apClientSince < AP_CLIENT_RETRY_INTERVAL) return false;
+  this->apClientSince = millis();
+  return true;
+}
 bool Network::connectWiFi(const uint8_t *bssid, const int32_t channel) {
-  if(this->softAPOpened && WiFi.softAPgetStationNum() > 0) {
+  if(this->softAPOpened && WiFi.softAPgetStationNum() > 0 && !this->apClientStuck()) {
     // There is a client connected to the soft AP.  We do not want to close out the connection.  While both the
     // Soft AP and a wifi connection can coexist on ESP32 the performance is abysmal.
     WiFi.disconnect(false);
@@ -575,7 +587,11 @@ bool Network::openSoftAP() {
   LOG_ILN();
   LOG_ILN("Turning the HotSpot On");
   esp_task_wdt_reset(); // Make sure we do not reboot here.
-  WiFi.softAP(strlen(settings.hostname) > 0 ? settings.hostname : "ESPSomfy RTS", "");
+  // Appareil neuf (aucun réseau configuré) : point d'accès ouvert pour l'onboarding. Sinon la clé WPA2.
+  bool onboarding = strlen(settings.WIFI.ssid) == 0 && settings.connType == conn_types_t::unset;
+  const char *apKey = onboarding ? nullptr : settings.WIFI.apPassphrase;
+  if(apKey) LOG_IF("Fallback hotspot protected, passphrase: %s\n", apKey);
+  WiFi.softAP(strlen(settings.hostname) > 0 ? settings.hostname : "ESPSomfy RTS", apKey);
   delay(200);
   return true;
 }

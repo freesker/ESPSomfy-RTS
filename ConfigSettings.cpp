@@ -610,6 +610,11 @@ bool WifiSettings::begin() {
 bool WifiSettings::fromJSON(JsonObject &obj) {
   this->parseValueString(obj, "ssid", this->ssid, sizeof(this->ssid));
   this->parseSecretString(obj, "passphrase", this->passphrase, sizeof(this->passphrase));
+  if(obj["apPassphrase"].is<const char*>()) {
+    const char *ap = obj["apPassphrase"].as<const char*>();
+    size_t len = strlen(ap);
+    if(len == 0 || (len >= 8 && len <= 63)) strlcpy(this->apPassphrase, ap, sizeof(this->apPassphrase));
+  }
   if(obj.containsKey("roaming")) this->roaming = obj["roaming"];
   if(obj.containsKey("hidden")) this->hidden = obj["hidden"];
   return true;
@@ -618,6 +623,7 @@ bool WifiSettings::toJSON(JsonObject &obj) {
   obj["ssid"] = this->ssid;
   obj["passphrase"] = strlen(this->passphrase) > 0 ? SECRET_MASK : "";
   obj["hasPassphrase"] = strlen(this->passphrase) > 0;
+  obj["apPassphrase"] = this->apPassphrase;
   obj["roaming"] = this->roaming;
   obj["hidden"] = this->hidden;
   return true;
@@ -626,6 +632,7 @@ void WifiSettings::toJSON(JsonResponse &json) {
   json.addElem("ssid", this->ssid);
   json.addElem("passphrase", strlen(this->passphrase) > 0 ? SECRET_MASK : "");
   json.addElem("hasPassphrase", strlen(this->passphrase) > 0);
+  json.addElem("apPassphrase", this->apPassphrase);
   json.addElem("roaming", this->roaming);
   json.addElem("hidden", this->hidden);
 }
@@ -635,6 +642,7 @@ bool WifiSettings::save() {
   pref.clear();
   pref.putString("ssid", this->ssid);
   pref.putString("passphrase", this->passphrase);
+  pref.putString("apPass", this->apPassphrase);
   pref.putBool("roaming", this->roaming);
   pref.putBool("hidden", this->hidden);
   pref.end();
@@ -646,10 +654,23 @@ bool WifiSettings::load() {
   pref.getString("passphrase", this->passphrase, sizeof(this->passphrase));
   this->ssid[sizeof(this->ssid) - 1] = '\0';
   this->passphrase[sizeof(this->passphrase) - 1] = '\0';
+  if(pref.isKey("apPass")) pref.getString("apPass", this->apPassphrase, sizeof(this->apPassphrase));
   this->roaming = pref.getBool("roaming", true);
   this->hidden = pref.getBool("hidden", false);
   pref.end();
+  this->ensureApPassphrase();
   return true;
+}
+// Le point d'accès de secours n'est ouvert que tant qu'aucun réseau n'a été configuré : ensuite il est
+// protégé par une clé WPA2 aléatoire, affichée dans les réglages réseau et sur le port série.
+void WifiSettings::ensureApPassphrase() {
+  if(strlen(this->apPassphrase) >= 8) return;
+  static const char alphabet[] = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  for(uint8_t i = 0; i < 12; i++) this->apPassphrase[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
+  this->apPassphrase[12] = '\0';
+  pref.begin("WIFI");
+  pref.putString("apPass", this->apPassphrase);
+  pref.end();
 }
 String WifiSettings::mapEncryptionType(int type) {
   switch(type) {
@@ -674,7 +695,9 @@ void WifiSettings::print() {
   LOG_I(this->ssid);
   LOG_I("] PassPhrase: [");
   LOG_I(strlen(this->passphrase) > 0 ? "set" : "none");
-  LOG_ILN("]");  
+  LOG_ILN("]");
+  LOG_I(" Fallback hotspot passphrase: ");
+  LOG_ILN(this->apPassphrase);
 }
 void WifiSettings::printNetworks() {
   int n = WiFi.scanNetworks(false, false);
