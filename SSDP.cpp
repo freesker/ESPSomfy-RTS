@@ -1,6 +1,7 @@
 #include <functional>
 #include <AsyncUDP.h>
 #include "Log.h"
+#include <Preferences.h>
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "SSDP.h"
@@ -176,10 +177,14 @@ bool SSDPClass::begin() {
     #endif
     return false;
   }
-  this->bootId = Timestamp::epoch();
-  if(this->bootId < 1000) {
-    this->isStarted = false;
-    return false;
+  // BOOTID.UPNP.ORG doit croître à chaque démarrage : un compteur NVS remplace l'heure NTP, qui
+  // empêchait toute découverte sur un réseau sans accès NTP.
+  if(this->bootId == 0) {
+    Preferences pref;
+    pref.begin("SSDP");
+    this->bootId = pref.getULong("bootId", 0) + 1;
+    pref.putULong("bootId", this->bootId);
+    pref.end();
   }
   this->configId = (settings.fwVersion.major * 100) + (settings.fwVersion.minor * 10) + settings.fwVersion.build;
   _server.onPacket([](void * arg, AsyncUDPPacket& packet) { ((SSDPClass*)(arg))->_processRequest(packet); }, this);
@@ -590,7 +595,10 @@ void SSDPClass::_sendByeBye(UPNPDeviceType *d, bool root) {
                        d->getUSN(response_types_t::deviceType), this->bootId, this->configId);
    this->_sendNotify(buffer);
 }
+// sendQueue est remplie par la tâche AsyncUDP et vidée par loop() : accès sous section critique.
+static portMUX_TYPE ssdpQueueMux = portMUX_INITIALIZER_UNLOCKED;
 void SSDPClass::_addToSendQueue(IPAddress addr, uint16_t port, UPNPDeviceType *d, const char *st, response_types_t responseType, uint8_t sec) {
+  portENTER_CRITICAL(&ssdpQueueMux);
   /*
   typedef struct ssdp_response_t {
     IPAddress address;
@@ -606,9 +614,7 @@ void SSDPClass::_addToSendQueue(IPAddress addr, uint16_t port, UPNPDeviceType *d
       // Check to see if this is a reply to the same place.
       ssdp_response_t *q = &this->sendQueue[i];
       if(q->address == addr && q->port == port && q->responseType == responseType) {
-        #ifdef DEBUG_SSDP
-        DEBUG_SSDP.printf("There is already a response to this query in slot %u\n", i);
-        #endif
+        portEXIT_CRITICAL(&ssdpQueueMux);
         return;
       }
     }
@@ -622,15 +628,17 @@ void SSDPClass::_addToSendQueue(IPAddress addr, uint16_t port, UPNPDeviceType *d
         #endif
         ssdp_response_t *q = &this->sendQueue[i];
         q->dev = d;
-        q->sendTime = millis() + (random(0, sec - 1) * 1000L);
+        q->sendTime = millis() + (random(0, sec > 1 ? sec - 1 : 1) * 1000L);
         q->address = addr;
         q->port = port;
         q->responseType = responseType;
         strlcpy(q->st, st, sizeof(ssdp_response_t::st)-1);
         q->waiting = true;
+        portEXIT_CRITICAL(&ssdpQueueMux);
         return;
     }
   }
+  portEXIT_CRITICAL(&ssdpQueueMux);
   // If we made it here then there were was not space available on the queue.
   #ifdef DEBUG_SSDP
   DEBUG_SSDP.println("The SSDP response queue was full.  Dropping request");
@@ -638,18 +646,18 @@ void SSDPClass::_addToSendQueue(IPAddress addr, uint16_t port, UPNPDeviceType *d
 }
 void SSDPClass::_sendQueuedResponses() {
   for(uint8_t i = 0; i < SSDP_QUEUE_SIZE; i++) {
-    if(this->sendQueue[i].waiting) {
-      ssdp_response_t *q = &this->sendQueue[i];
-      if(reached(q->sendTime)) {
-          // Send the response and delete the pointer.
-          #ifdef DEBUG_SSDP
-            DEBUG_SSDP.print("Sending SSDP queued response ");
-            DEBUG_SSDP.println(i);
-          #endif
-          this->_sendResponse(q->address, q->port, q->dev, q->st, q->responseType);
-          q->waiting = false;
-          return;
-      }
+    ssdp_response_t copy;
+    bool ready = false;
+    portENTER_CRITICAL(&ssdpQueueMux);
+    if(this->sendQueue[i].waiting && reached(this->sendQueue[i].sendTime)) {
+      copy = this->sendQueue[i];
+      this->sendQueue[i].waiting = false;
+      ready = true;
+    }
+    portEXIT_CRITICAL(&ssdpQueueMux);
+    if(ready) {
+      this->_sendResponse(copy.address, copy.port, copy.dev, copy.st, copy.responseType);
+      return;
     }
   }
 }
@@ -708,8 +716,9 @@ void SSDPClass::_processRequest(AsyncUDPPacket &p) {
       DEBUG_SSDP.println("---------------   ROOT   ---------------------");
       this->_printPacket(&pkt);
       #endif
+      // UPnP impose une réponse unicast vers l'émetteur du M-SEARCH, différée de MX secondes au plus.
       if(pkt.type == MULTICAST) 
-        this->_addToSendQueue(IPAddress(SSDP_MULTICAST_ADDR), SSDP_PORT, dev, pkt.st, response_types_t::root, pkt.mx);
+        this->_addToSendQueue(p.remoteIP(), p.remotePort(), dev, pkt.st, response_types_t::root, pkt.mx);
       else 
         this->_sendResponse(p.remoteIP(), p.remotePort(), dev, pkt.st, response_types_t::root);
     }
@@ -717,7 +726,7 @@ void SSDPClass::_processRequest(AsyncUDPPacket &p) {
       UPNPDeviceType *dev = nullptr;
       bool useUUID = false;
       if(this->_startsWith("uuid:", pkt.st)) {
-        dev = this->findDeviceByUUID(pkt.st);
+        dev = this->findDeviceByUUID(pkt.st + 5); // sans le préfixe "uuid:", les UUID sont stockés nus
         useUUID = true;
       }
       else if(this->_startsWith("urn:", pkt.st)) { dev = this->findDeviceByType(pkt.st); }
@@ -727,7 +736,7 @@ void SSDPClass::_processRequest(AsyncUDPPacket &p) {
         DEBUG_SSDP.println("--------------   ACCEPT   --------------------");
         #endif
         if(pkt.type == MULTICAST)
-          this->_addToSendQueue(IPAddress(SSDP_MULTICAST_ADDR), SSDP_PORT, dev, pkt.st, useUUID ? response_types_t::uuid : response_types_t::root, pkt.mx);
+          this->_addToSendQueue(p.remoteIP(), p.remotePort(), dev, pkt.st, useUUID ? response_types_t::uuid : response_types_t::root, pkt.mx);
         else {
           this->_sendResponse(p.remoteIP(), p.remotePort(), dev, pkt.st, useUUID ? response_types_t::uuid : response_types_t::root);
         }
