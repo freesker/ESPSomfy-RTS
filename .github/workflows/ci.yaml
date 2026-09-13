@@ -43,6 +43,23 @@ jobs:
             --quiet *.cpp *.h SomfyController.ino
         continue-on-error: true
 
+  lint:
+    name: Interface web (ESLint, html-validate)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Lint
+        run: |
+          npm install --no-audit --no-fund
+          npm run lint
+
   littlefs:
     name: LittleFS
     runs-on: ubuntu-latest

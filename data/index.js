@@ -1,5 +1,12 @@
 //var hst = '192.168.1.208';
 var hst = '192.168.1.152';
+// Noms de jours et de mois utilisés par les masques de format de date (ddd, dddd, MMM, MMMM).
+const formatType = {
+    DAYS: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+    MONTHS: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+};
+// Etat partagé avec les gestionnaires inline de la télécommande virtuelle (index.html).
+var mouseDown = false;
 //var hst = '192.168.1.159';
 var _rooms = [{ roomId: 0, name: 'Home' }];
 
@@ -767,7 +774,7 @@ class UIBinder {
                             tval = tval.fmt(fld.getAttribute('data-fmtmask'), fld.getAttribute('data-fmtempty') || '');
                             break;
                         case 'duration':
-                            tval = ui.formatDuration(tval, $this.attr('data-fmtmask'));
+                            tval = ui.formatDuration(tval);
                             break;
                     }
                     this.setValue(fld, tval);
@@ -809,6 +816,7 @@ class UIBinder {
                 if (ndx !== -1) {
                     var v = s.substring(0, ndx);
                     var ndxEnd = s.lastIndexOf(']');
+                    var k, a;
                     var ord = parseInt(s.substring(ndx + 1, ndxEnd), 10);
                     if (isNaN(ord)) ord = 0;
                     if (typeof arrayRef[sRef] === 'undefined') {
@@ -868,15 +876,15 @@ class UIBinder {
             case 'number':
                 return this.parseNumber(val);
             case 'date':
-                if (typeof val === 'string') return Date.parseISO(val);
-                else if (typeof val === 'number') return new Date(number);
+                if (typeof val === 'string') return new Date(val);
+                else if (typeof val === 'number') return new Date(val);
                 else if (typeof val.getMonth === 'function') return val;
                 return undefined;
             case 'time':
                 var dt = new Date();
                 if (typeof val === 'number') {
                     dt.setHours(0, 0, 0);
-                    dt.addMinutes(tval);
+                    dt.setMinutes(dt.getMinutes() + val);
                     return dt;
                 }
                 else if (typeof val === 'string' && val.indexOf(':') !== -1) {
@@ -923,6 +931,10 @@ class UIBinder {
         if (typeof el === 'undefined') el = document.getElementById('divContainer');
         el.appendChild(div);
         return div;
+    }
+    formatDuration(ms) {
+        let s = Math.floor((ms || 0) / 1000);
+        return `${Math.floor(s / 3600)}:${Math.floor((s % 3600) / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
     }
     serviceError(el, err) {
         let title = 'Service Error'
@@ -4373,7 +4385,7 @@ class Firmware {
                 if (typeof overlay !== 'undefined') overlay.remove();
                 console.log('Aborted');
                 if (typeof overlay !== 'undefined') overlay.remove();
-                reject({ htmlError: status, service: 'GET /backup' });
+                reject({ htmlError: xhr.status, service: 'GET /backup' });
             };
             xhr.open('GET', baseUrl.length > 0 ? `${baseUrl}/backup` : '/backup', true);
             xhr.send();
@@ -4512,7 +4524,7 @@ class Firmware {
                 console.log('Backup Complete');
             }
             catch (err) {
-                ui.serviceError(el, err);
+                ui.serviceError(err);
                 return;
             }
         }

@@ -1,6 +1,7 @@
-﻿<!DOCTYPE html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
+    <title>ESPSomfy RTS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta charset="UTF-8">
     <meta name="mobile-web-app-capable" content="yes" />
@@ -114,7 +115,7 @@
           rel="apple-touch-startup-image">
 
 
-    <script type="text/javascript" src="index.js?v=2.4.7c"></script>
+    <script src="index.js?v=2.4.7c"></script>
 </head>
 <body>
     <div id="divContainer" class="container main" data-auth="false">
@@ -145,7 +146,7 @@
                     <div class="subtab-container"><span class="selected" data-grpid="divSystemOptions">Options</span><span data-grpid="divSecurityOptions">Security</span><span data-grpid="divFirmware">Firmware</span></div>
                     <div id="divSystemOptions" class="subtab-content">
                         <div class="field-group">
-                            <input id="fldHostname" name="hostname" type="text" data-bind="general.hostname" length=32 placeholder="Host Name">
+                            <input id="fldHostname" name="hostname" type="text" data-bind="general.hostname" maxlength="32" placeholder="Host Name">
                             <label for="fldHostname">Host Name</label>
                         </div>
                         <div class="field-group">
@@ -153,7 +154,7 @@
                             <label for="selTimeZone">Time Zone</label>
                         </div>
                         <div class="field-group">
-                            <input id="fldNtptimesever" name="ntptimeserver" type="text" length=32 data-bind="general.ntpServer" placeholder="Time Server">
+                            <input id="fldNtptimeserver" name="ntptimeserver" type="text" maxlength="32" data-bind="general.ntpServer" placeholder="Time Server">
                             <label for="fldNtptimeserver">NTP Time Server</label>
                         </div>
                         <div class="field-group" style="vertical-align:middle;">
@@ -178,12 +179,12 @@
                     <div id="divSecurityOptions" class="subtab-content" style="display:none;">
                         <div>
                             <div class="field-group" style="display:inline-block;width:100px;vertical-align:middle;">
-                                <select data-bind="security.type" onchange="general.onSecurityTypeChanged();" data-datatype="int" style="width:100%;">
+                                <select id="selSecurityType" data-bind="security.type" onchange="general.onSecurityTypeChanged();" data-datatype="int" style="width:100%;">
                                     <option value="0" selected>None</option>
                                     <option value="1">Pin Entry</option>
                                     <option value="2">Password</option>
                                 </select>
-                                <label for="fldPinEntry">Security Type</label>
+                                <label for="selSecurityType">Security Type</label>
                             </div>
                             <div id="divPermissions" class="field-group" style="display:none;vertical-align:middle;float:right;width:auto;">
                                 <input id="cbSecureConfigOnly" data-bind="security.permissions.configOnly" type="checkbox" style="display:inline-block;" />
@@ -193,17 +194,17 @@
                         <div id="divPinSecurity" style="display:none;">
                             <div class="field-group" style="text-align:center;">
                                 <div id="fldPinEntry" style="display:inline-block;" onkeydown="ui.pinKeyPressed(event);">
-                                    <input class="pin-digit" maxlength="1" data-bind="security.pin.d0" onfocus="ui.pinDigitFocus(event);">
-                                    <input class="pin-digit" maxlength="1" data-bind="security.pin.d1" onfocus="ui.pinDigitFocus(event);">
-                                    <input class="pin-digit" maxlength="1" data-bind="security.pin.d2" onfocus="ui.pinDigitFocus(event);">
-                                    <input class="pin-digit" maxlength="1" data-bind="security.pin.d3" onfocus="ui.pinDigitFocus(event);">
+                                    <input class="pin-digit" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="1" data-bind="security.pin.d0" onfocus="ui.pinDigitFocus(event);">
+                                    <input class="pin-digit" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="1" data-bind="security.pin.d1" onfocus="ui.pinDigitFocus(event);">
+                                    <input class="pin-digit" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="1" data-bind="security.pin.d2" onfocus="ui.pinDigitFocus(event);">
+                                    <input class="pin-digit" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="1" data-bind="security.pin.d3" onfocus="ui.pinDigitFocus(event);">
                                 </div>
                                 <label for="fldPinEntry" style="margin-top:7px;">Enter Pin</label>
                             </div>
                         </div>
                         <div id="divPasswordSecurity" style="display:none;">
                             <div class="field-group">
-                                <input id="fldUsername" name="username" type="text" data-bind="security.username" length=32 placeholder="Username">
+                                <input id="fldUsername" name="username" type="text" data-bind="security.username" maxlength="32" placeholder="Username">
                                 <label for="fldUsername">Username</label>
                             </div>
                             <div class="field-group">
@@ -212,11 +213,11 @@
                             </div>
                             <div class="field-group">
                                 <input id="fldReenterPassword" name="password" type="password" autocomplete="new-password" data-bind="security.repeatpassword" maxlength="32" placeholder="Re-enter Password">
-                                <label for="fldRenterPassword">Re-enter Password</label>
+                                <label for="fldReenterPassword">Re-enter Password</label>
                             </div>
                         </div>
                         <div class="button-container">
-                            <button id="btnLogin" type="button" value="Submit" onclick="general.saveSecurity();">
+                            <button id="btnSaveSecurity" type="button" value="Submit" onclick="general.saveSecurity();">
                                 Save Security
                             </button>
                         </div>
@@ -299,7 +300,7 @@
                                 <div id="divAps" data-lastloaded="0" style="border-radius:5px;border:solid 1px #00bcd4;margin-bottom:-10px;"></div>
                                 <div class="button-container"><button id="btnScanAPs" type="button" onclick="wifi.loadAPs();">Scan</button></div>
                                 <div class="field-group">
-                                    <input id="fldSsid" name="ssid" type="text" data-bind="wifi.ssid" length=32 placeholder="SSID">
+                                    <input id="fldSsid" name="ssid" type="text" data-bind="wifi.ssid" maxlength="32" placeholder="SSID">
                                     <label for="fldSsid">Network SSID</label>
                                 </div>
                                 <div class="field-group">
@@ -337,7 +338,7 @@
                                 </div>
                                 <div class="field-group" style="width:25%;display:inline-block;margin-right:7px;">
                                     <select id="selETHMDCPin" name="mdc" placeholder="MDC Pin" data-datatype="int" data-bind="ethernet.MDCPin" style="width:100%;"></select>
-                                    <label for="selETHPMDCPin">MDC Pin</label>
+                                    <label for="selETHMDCPin">MDC Pin</label>
                                 </div>
                                 <div class="field-group" style="width:25%;display:inline-block;margin-right:7px;">
                                     <select id="selETHMDIOPin" name="mdio" placeholder="MDIO Pin" data-datatype="int" data-bind="ethernet.MDIOPin" style="width:100%;"></select>
@@ -360,23 +361,23 @@
                         </div>
                         <div id="divStaticIP" style="display:none;">
                             <div class="field-group">
-                                <input id="fldIPAddress" name="staticIP" type="text" data-bind="ip.ip" length=32 placeholder="0.0.0.0">
+                                <input id="fldIPAddress" name="staticIP" type="text" data-bind="ip.ip" maxlength="32" placeholder="0.0.0.0">
                                 <label for="fldIPAddress">Static IP Address</label>
                             </div>
                             <div class="field-group">
-                                <input id="fldSubnetMask" name="subnet" type="text" data-bind="ip.subnet" length=32 placeholder="0.0.0.0">
+                                <input id="fldSubnetMask" name="subnet" type="text" data-bind="ip.subnet" maxlength="32" placeholder="0.0.0.0">
                                 <label for="fldSubnetMask">Subnet Mask</label>
                             </div>
                             <div class="field-group">
-                                <input id="fldGateway" name="gateway" type="text" data-bind="ip.gateway" length=32 placeholder="0.0.0.0">
+                                <input id="fldGateway" name="gateway" type="text" data-bind="ip.gateway" maxlength="32" placeholder="0.0.0.0">
                                 <label for="fldGateway">Gateway</label>
                             </div>
                             <div class="field-group">
-                                <input id="fldDNS1" name="dns1" type="text" data-bind="ip.dns1" length=32 placeholder="0.0.0.0">
+                                <input id="fldDNS1" name="dns1" type="text" data-bind="ip.dns1" maxlength="32" placeholder="0.0.0.0">
                                 <label for="fldDNS1">Domain Name Server 1</label>
                             </div>
                             <div class="field-group">
-                                <input id="fldDNS2" name="dns2" type="text" data-bind="ip.dns2" length=32 placeholder="0.0.0.0">
+                                <input id="fldDNS2" name="dns2" type="text" data-bind="ip.dns2" maxlength="32" placeholder="0.0.0.0">
                                 <label for="fldDNS2">Domain Name Server 2</label>
                             </div>
                         </div>
@@ -405,12 +406,12 @@
                                 <option>MQTTS</option>
                             </select>
                             <span style="">://</span>
-                            <input name="mqtt-host" type="text" length=64 placeholder="Host" data-bind="mqtt.hostname" style="width:calc(100% - 137px);">
+                            <input name="mqtt-host" type="text" maxlength="64" placeholder="Host" data-bind="mqtt.hostname" style="width:calc(100% - 137px);">
                             <span>:</span>
-                            <input name="mqtt-port" type="text" length=5 placeholder="Port" data-bind="mqtt.port" data-datatype="int" style="width:50px;">
+                            <input name="mqtt-port" type="text" maxlength="5" placeholder="Port" data-bind="mqtt.port" data-datatype="int" style="width:50px;">
                         </div>
                         <div class="field-group">
-                            <input id="fldMqttUsername" name="mqtt-username" type="text" data-bind="mqtt.username" length=32 placeholder="Username">
+                            <input id="fldMqttUsername" name="mqtt-username" type="text" data-bind="mqtt.username" maxlength="32" placeholder="Username">
                             <label for="fldMqttUsername">Username</label>
                         </div>
                         <div class="field-group">
@@ -418,11 +419,11 @@
                             <label for="fldMqttPassword">Password</label>
                         </div>
                         <div class="field-group">
-                            <input id="fldMqttTopic" name="mqtt-topic" type="text" length=64 data-bind="mqtt.rootTopic" placeholder="Root Topic">
+                            <input id="fldMqttTopic" name="mqtt-topic" type="text" maxlength="64" data-bind="mqtt.rootTopic" placeholder="Root Topic">
                             <label for="fldMqttTopic">Root Topic</label>
                         </div>
                         <div class="field-group" id="divDiscoveryTopic" style="display:none;">
-                            <input id="fldDiscoTopic" name="disco-topic" type="text" length=64 data-bind="mqtt.discoTopic" placeholder="Discovery Topic">
+                            <input id="fldDiscoTopic" name="disco-topic" type="text" maxlength="64" data-bind="mqtt.discoTopic" placeholder="Discovery Topic">
                             <label for="fldDiscoTopic">Discovery Topic</label>
                         </div>
 
@@ -446,7 +447,7 @@
                         <div id="somfyRoom" style="width:100%;display:none;">
                             <div style="display:inline-block;float:right;position:relative;"><span id="spanRoomId">*</span>/<span id="spanMaxRooms">16</span></div>
                             <div class="field-group" style="padding:0px;">
-                                <input id="fldRoomName" name="roomName" data-bind="name" type="text" length=20 placeholder="Name">
+                                <input id="fldRoomName" name="roomName" data-bind="name" type="text" maxlength="20" placeholder="Name">
                                 <label for="fldRoomName">Name</label>
                             </div>
                             <div class="button-container" style="margin-top:-10px;padding-left:7px;padding-right:7px;">
@@ -536,7 +537,7 @@
                                             <label for="selShadeType">Type</label>
                                         </div>
                                         <div id="divShadeAddress" class="field-group" style="margin-top:-15px;">
-                                            <input id="fldShadeAddress" name="shadeAddress" data-bind="remoteAddress" data-datatype="int" type="number" length=5 placeholder="Address" style="width:100%;text-align:right;">
+                                            <input id="fldShadeAddress" name="shadeAddress" data-bind="remoteAddress" data-datatype="int" type="number" placeholder="Address" style="width:100%;text-align:right;">
                                             <label for="fldShadeAddress">Remote Address</label>
                                         </div>
                                     </div>
@@ -554,16 +555,16 @@
                                 <label for="selShadeRoom">Room</label>
                             </div>
                             <div class="field-group" style="padding:0px;">
-                                <input id="fldShadeName" name="shadeName" data-bind="name" type="text" length=20 placeholder="Name">
+                                <input id="fldShadeName" name="shadeName" data-bind="name" type="text" maxlength="20" placeholder="Name">
                                 <label for="fldShadeName">Name</label>
                             </div>
                             <div id="divLiftSettings" style="margin-top:-10px;">
                                 <div class="field-group" style="display:inline-block;max-width:127px;margin-right:17px;margin-top:-10px;">
-                                    <input id="fldShadeUpTime" name="shadeUpTime" data-bind="upTime" data-datatype="int" type="number" length=5 placeholder="milliseconds" style="width:100%;text-align:right;" />
+                                    <input id="fldShadeUpTime" name="shadeUpTime" data-bind="upTime" data-datatype="int" type="number" placeholder="milliseconds" style="width:100%;text-align:right;" />
                                     <label for="fldShadeUpTime">Up Time (ms)</label>
                                 </div>
                                 <div class="field-group" style="display:inline-block;max-width:127px;">
-                                    <input id="fldShadeDownTime" name="shadeDownTime" type="number" data-bind="downTime" data-datatype="int" length=5 placeholder="milliseconds" style="width:100%;text-align:right;" />
+                                    <input id="fldShadeDownTime" name="shadeDownTime" type="number" data-bind="downTime" data-datatype="int" placeholder="milliseconds" style="width:100%;text-align:right;" />
                                     <label for="fldShadeDownTime">Down Time (ms)</label>
                                 </div>
                             </div>
@@ -579,7 +580,7 @@
                                     <label for="selTiltType" style="cursor:pointer;">Tilt Type</label>
                                 </div>
                                 <div class="field-group" style="display:inline-block;width:127px;vertical-align:middle;">
-                                    <input id="fldTiltTime" name="shadeTiltTime" type="number" data-bind="tiltTime" data-datatype="int" length=5 placeholder="milliseconds" style="width:100%;text-align:right;" />
+                                    <input id="fldTiltTime" name="shadeTiltTime" type="number" data-bind="tiltTime" data-datatype="int" placeholder="milliseconds" style="width:100%;text-align:right;" />
                                     <label for="fldTiltTime">Tilt Time (ms)</label>
                                 </div>
                             </div>
@@ -631,8 +632,8 @@
                                 </div>
                             </div>
 
-                            <div classs="field-group" style="display:inline-block;">
-                                <label for="selRepeatCommnds" style="cursor:pointer;color:#00bcd4;margin-right:4px;">Repeat Commands</label>
+                            <div class="field-group" style="display:inline-block;">
+                                <label for="selRepeatCommands" style="cursor:pointer;color:#00bcd4;margin-right:4px;">Repeat Commands</label>
                                 <select id="selRepeatCommands" data-bind="repeats" data-datatype="int" style="width:127px;">
                                     <option value="0">No Repeats</option>
                                     <option value="1">1 Time</option>
@@ -721,8 +722,8 @@
                             </div>
                             <div>
                                 <div class="field-group" style="width:127px;display:inline-block;margin-top:-10px;float:left;">
-                                    <input id="fldShadeAddress" name="shadeAddress" data-bind="remoteAddress" data-datatype="int" type="number" length=5 placeholder="Address" style="width:100%;text-align:right;">
-                                    <label for="fldShadeAddress">Remote Address</label>
+                                    <input id="fldGroupAddress" name="shadeAddress" data-bind="remoteAddress" data-datatype="int" type="number" placeholder="Address" style="width:100%;text-align:right;">
+                                    <label for="fldGroupAddress">Remote Address</label>
                                 </div>
                                 <div>
                                     <div id="divSomfyGroupButtons" style="float:right;margin-top:-32px;position:relative">
@@ -737,7 +738,7 @@
                                 <label for="selGroupRoom">Room</label>
                             </div>
                             <div class="field-group" style="padding:0px;">
-                                <input id="fldGroupName" name="groupName" data-bind="name" type="text" length=20 placeholder="Name">
+                                <input id="fldGroupName" name="groupName" data-bind="name" type="text" maxlength="20" placeholder="Name">
                                 <label for="fldGroupName">Name</label>
                             </div>
                             <div style="margin-top:-10px;" id="divFlipGrpCommands">
@@ -747,9 +748,9 @@
                                 </div>
                             </div>
 
-                            <div classs="field-group" style="display:inline-block;">
-                                <label for="selRepeatCommnds" style="cursor:pointer;color:#00bcd4;margin-right:4px;">Repeat Commands</label>
-                                <select id="selRepeatCommands" data-bind="repeats" data-datatype="int" style="width:127px;">
+                            <div class="field-group" style="display:inline-block;">
+                                <label for="selGroupRepeatCommands" style="cursor:pointer;color:#00bcd4;margin-right:4px;">Repeat Commands</label>
+                                <select id="selGroupRepeatCommands" data-bind="repeats" data-datatype="int" style="width:127px;">
                                     <option value="0">No Repeats</option>
                                     <option value="1">1 Time</option>
                                     <option value="2">2 Times</option>
@@ -1015,18 +1016,18 @@
             <input id="fldLoginType" type="hidden" data-bind="login.type" data-datatype="int" />
             <div id="divLoginPin" style="display:none;">
                 <div class="field-group" style="text-align:center;">
-                    <div id="fldPinEntry" style="display:inline-block;" onkeydown="ui.pinKeyPressed(event);">
-                        <input class="pin-digit" maxlength="1" data-bind="login.pin.d0" onfocus="ui.pinDigitFocus(event);">
-                        <input class="pin-digit" maxlength="1" data-bind="login.pin.d1" onfocus="ui.pinDigitFocus(event);">
-                        <input class="pin-digit" maxlength="1" data-bind="login.pin.d2" onfocus="ui.pinDigitFocus(event);">
-                        <input class="pin-digit" maxlength="1" data-bind="login.pin.d3" onfocus="ui.pinDigitFocus(event);">
+                    <div id="fldLoginPinEntry" style="display:inline-block;" onkeydown="ui.pinKeyPressed(event);">
+                        <input class="pin-digit" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="1" data-bind="login.pin.d0" onfocus="ui.pinDigitFocus(event);">
+                        <input class="pin-digit" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="1" data-bind="login.pin.d1" onfocus="ui.pinDigitFocus(event);">
+                        <input class="pin-digit" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="1" data-bind="login.pin.d2" onfocus="ui.pinDigitFocus(event);">
+                        <input class="pin-digit" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="1" data-bind="login.pin.d3" onfocus="ui.pinDigitFocus(event);">
                     </div>
-                    <label for="fldPinEntry" style="margin-top:7px;">Enter Pin</label>
+                    <label for="fldLoginPinEntry" style="margin-top:7px;">Enter Pin</label>
                 </div>
             </div>
             <div id="divLoginPassword" style="display:none;" onkeyup="if (event.code === 'Enter') security.login();">
                 <div class="field-group">
-                    <input id="fldLoginUsername" name="username" type="text" data-bind="login.username" length=32 placeholder="Username" />
+                    <input id="fldLoginUsername" name="username" type="text" data-bind="login.username" maxlength="32" placeholder="Username" />
                     <label for="fldLoginUsername">Username</label>
                 </div>
                 <div class="field-group">
@@ -1041,7 +1042,7 @@
             </div>
         </div>
     </div>
-    <script type="text/javascript">
+    <script>
         var mouseDown = false;
         //ui.waitMessage(document.getElementById('divShadeControls'));
         let tabs = document.querySelectorAll('div.tab-container > span');
