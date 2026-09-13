@@ -139,16 +139,20 @@ bool BaseSettings::parseSecretString(JsonObject &obj, const char *prop, char *pd
   strlcpy(pdest, val, size);
   return true;
 }
+// ArduinoJson renvoie un pointeur nul pour une valeur qui n'est pas une chaîne (null, nombre, objet) :
+// strlcpy plantait alors l'appareil sur un simple {"hostname":null}.
 bool BaseSettings::parseValueString(JsonObject &obj, const char *prop, char *pdest, size_t size) {
-  if(obj.containsKey(prop)) strlcpy(pdest, obj[prop], size);
+  if(!obj[prop].is<const char*>()) return false;
+  strlcpy(pdest, obj[prop].as<const char*>(), size);
   return true;
 }
 bool BaseSettings::parseIPAddress(JsonObject &obj, const char *prop, IPAddress *pdest) {
-  if(obj.containsKey(prop)) {
-    char buff[16];
-    strlcpy(buff, obj[prop], sizeof(buff));
-    pdest->fromString(buff);
-  }
+  if(!obj[prop].is<const char*>()) return false;
+  char buff[16];
+  strlcpy(buff, obj[prop].as<const char*>(), sizeof(buff));
+  IPAddress parsed;
+  if(!parsed.fromString(buff)) return false;
+  *pdest = parsed;
   return true;
 }
 int BaseSettings::parseValueInt(JsonObject &obj, const char *prop, int defVal) {

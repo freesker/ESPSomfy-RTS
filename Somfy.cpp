@@ -3292,6 +3292,7 @@ int8_t SomfyShade::fromJSON(JsonObject &obj) {
       JsonArray arr = obj["linkedAddresses"];
       uint8_t i = 0;
       for(uint32_t addr : arr) {
+        if(i >= SOMFY_MAX_LINKED_REMOTES) break;
         linkedAddresses[i++] = addr;
       }
       for(uint8_t j = 0; j < SOMFY_MAX_LINKED_REMOTES; j++) {
@@ -3461,15 +3462,7 @@ bool SomfyGroup::fromJSON(JsonObject &obj) {
   
   //if(obj.containsKey("sunSensor")) this->hasSunSensor() = obj["sunSensor"];  This is calculated
   if(obj.containsKey("repeats")) this->repeats = obj["repeats"];
-  if(obj.containsKey("linkedShades")) {
-    uint8_t linkedShades[SOMFY_MAX_GROUPED_SHADES];
-    memset(linkedShades, 0x00, sizeof(linkedShades));
-    JsonArray arr = obj["linkedShades"];
-    uint8_t i = 0;
-    for(uint8_t shadeId : arr) {
-      linkedShades[i++] = shadeId;
-    }
-  }
+  // Les volets d'un groupe se lient par /linkToGroup : la clé linkedShades n'est pas prise en compte ici.
   return true;
 }
 void SomfyGroup::toJSON(JsonResponse &json) {
