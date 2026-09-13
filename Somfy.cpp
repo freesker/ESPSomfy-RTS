@@ -4247,6 +4247,7 @@ static const uint32_t tempo_if_gap = 30415;  // Gap between frames
 static int16_t  bitMin = SYMBOL * TOLERANCE_MIN;
 static somfy_rx_t somfy_rx;
 static somfy_rx_queue_t rx_queue;
+static portMUX_TYPE rxQueueMux = portMUX_INITIALIZER_UNLOCKED;
 static somfy_tx_queue_t tx_queue;
 bool somfy_tx_queue_t::pop(somfy_tx_t *tx) {
   // Read the oldest index.
@@ -4296,25 +4297,30 @@ void somfy_tx_queue_t::push(uint8_t hwsync, uint8_t *payload, uint8_t bit_length
 }
 void somfy_rx_queue_t::init() { 
   LOG_DLN("Initializing RX Queue");
+  portENTER_CRITICAL(&rxQueueMux);
   for (uint8_t i = 0; i < MAX_RX_BUFFER; i++)
     this->items[i].clear();
-  memset(&this->index[0], 0xFF, MAX_RX_BUFFER);
+  memset((void *)this->index, 0xFF, MAX_RX_BUFFER);
   this->length = 0;
+  portEXIT_CRITICAL(&rxQueueMux);
 }
 bool somfy_rx_queue_t::pop(somfy_rx_t *rx) {
   // Read off the data from the oldest index.
-  //LOG_DLN("Popping RX Queue");
+  bool found = false;
+  portENTER_CRITICAL(&rxQueueMux);
   for(int8_t i = MAX_RX_BUFFER - 1; i >= 0; i--) {
     if(this->index[i] < MAX_RX_BUFFER) {
       uint8_t ndx = this->index[i];
-      memcpy(rx, &this->items[this->index[i]], sizeof(somfy_rx_t));
+      memcpy(rx, &this->items[ndx], sizeof(somfy_rx_t));
       this->items[ndx].clear();
       if(this->length > 0) this->length--;
       this->index[i] = 255;
-      return true;      
+      found = true;
+      break;
     }
   }
-  return false;
+  portEXIT_CRITICAL(&rxQueueMux);
+  return found;
 }
 
 void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
@@ -4488,6 +4494,7 @@ void RECEIVE_ATTR Transceiver::handleReceive() {
         // 3 total frames.  Althought it may not matter considering the length of a packet
         // will likely not push over the loop timing.  For now lets assume that there
         // may be some pressure on the loop for features.
+        portENTER_CRITICAL_ISR(&rxQueueMux);
         if(rx_queue.length >= MAX_RX_BUFFER) {
           // We have overflowed the buffer simply empty the last item
           // in this instance we will simply throw it away.
@@ -4514,6 +4521,7 @@ void RECEIVE_ATTR Transceiver::handleReceive() {
         }
         rx_queue.length++;
         rx_queue.index[0] = first;
+        portEXIT_CRITICAL_ISR(&rxQueueMux);
         memset(&somfy_rx.payload, 0x00, sizeof(somfy_rx.payload));
         somfy_rx.cpt_synchro_hw = 0;
         somfy_rx.previous_bit = 0x00;
@@ -4600,8 +4608,7 @@ void Transceiver::emitFrequencyScan(uint8_t num) {
 bool Transceiver::receive(somfy_rx_t *rx) {
     // Check to see if there is anything in the buffer
     if(rx_queue.length > 0) {
-      //LOG_DF("Processing receive %d\n", rx_queue.length);
-      rx_queue.pop(rx);
+      if(!rx_queue.pop(rx)) return false;
       this->frame.decodeFrame(rx);
       this->emitFrame(&this->frame, rx);
       return this->frame.valid;
@@ -5068,8 +5075,8 @@ void transceiver_config_t::apply() {
 }
 bool Transceiver::begin() {
     this->config.load();
+    rx_queue.init(); // Avant apply(), qui arme l'interruption de réception.
     this->config.apply();
-    rx_queue.init();
     return true;
 }
 void Transceiver::loop() {

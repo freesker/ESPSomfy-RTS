@@ -117,10 +117,12 @@ struct somfy_rx_t {
 // A simple FIFO queue to hold rx buffers.  We are using
 // a byte index to make it so we don't have to reorganize
 // the storage each time we push or pop.
+// La file est remplie par l'ISR de réception et vidée par loop() : length et index sont partagés
+// entre les deux contextes et toute manipulation se fait sous section critique (rxQueueMux).
 struct somfy_rx_queue_t {
   void init();
-  uint8_t length = 0;
-  uint8_t index[MAX_RX_BUFFER];
+  volatile uint8_t length = 0;
+  volatile uint8_t index[MAX_RX_BUFFER];
   somfy_rx_t items[MAX_RX_BUFFER];
   void push(somfy_rx_t *rx);
   bool pop(somfy_rx_t *rx);
