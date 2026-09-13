@@ -52,9 +52,20 @@ jobs:
         run: |
           make -C mklittlefs
 
+      - name: Prepare web assets
+        # Copie de data/ avec la version injectée dans les URL (cache-busting) et une version gzip
+        # de chaque ressource texte : le firmware sert le .gz quand il existe (403 Ko -> 64 Ko).
+        run: |
+          APP=$(tr -d '[:space:]' < data/appversion)
+          rm -rf build/data && mkdir -p build && cp -r data build/data
+          sed -i -E "s/\?v=[0-9A-Za-z.]+/?v=$APP/g" build/data/index.html
+          sed -i -E "s/appVersion = 'v[0-9A-Za-z.]+'/appVersion = 'v$APP'/" build/data/index.js
+          for f in build/data/index.js build/data/index.html build/data/main.css build/data/widgets.css build/data/icons.css build/data/icon.svg; do gzip -9 -k -n "$f"; done
+          ls -la build/data
+
       - name: Create LittleFS
         run: |
-          ./mklittlefs/mklittlefs --create data --size 1441792 SomfyController.littlefs.bin
+          ./mklittlefs/mklittlefs --create build/data --size 1441792 SomfyController.littlefs.bin
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4

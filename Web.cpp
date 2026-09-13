@@ -59,7 +59,26 @@ void Web::sendCORSHeaders(WebServer &server) {
     //server.sendHeader(F("Access-Control-Allow-Headers"), F("*"));
 }
 void Web::sendCacheHeaders(uint32_t seconds) {
-  server.sendHeader(F("Cache-Control"), F("public, max-age=604800, immutable"));
+  char buff[64];
+  snprintf(buff, sizeof(buff), "public, max-age=%lu, immutable", (unsigned long)seconds);
+  server.sendHeader(F("Cache-Control"), buff);
+}
+// Ressources statiques : version compressée (.gz, produite par la CI) servie quand elle existe
+// (WebServer ajoute Content-Encoding: gzip d'après l'extension), ETag dérivé de la version du
+// firmware pour répondre 304 aux navigateurs qui ont déjà le fichier.
+void Web::handleStaticFile(WebServer &server, const char *filename, const char *encoding, uint32_t cacheSeconds) {
+  char etag[24];
+  snprintf(etag, sizeof(etag), "\"%s\"", FW_VERSION);
+  if(server.hasHeader("If-None-Match") && server.header("If-None-Match").equals(etag)) {
+    server.send(304, encoding, "");
+    return;
+  }
+  server.sendHeader(F("ETag"), etag);
+  if(cacheSeconds > 0) this->sendCacheHeaders(cacheSeconds);
+  else server.sendHeader(F("Cache-Control"), F("no-cache"));
+  String gz = String(filename) + ".gz";
+  if(LittleFS.exists(gz)) this->handleStreamFile(server, gz.c_str(), encoding);
+  else this->handleStreamFile(server, filename, encoding);
 }
 void Web::end() {
   //server.end();
@@ -78,6 +97,7 @@ void Web::handleDeserializationError(WebServer &server, DeserializationError &er
     }
 }
 #define LOGIN_MAX_FAILURES 5
+#define STATIC_CACHE_SECONDS 604800UL // 7 jours : les URL des ressources portent la version (?v=), l'ETag couvre le reste.
 #define LOGIN_LOCK_MS 60000UL
 static bool constantTimeEquals(const char *a, const char *b) {
   size_t la = strlen(a), lb = strlen(b);
@@ -1149,10 +1169,10 @@ void Web::begin() {
   LOG_DLN("Creating Web MicroServices...");
   // Pas de CORS : l'interface est servie par l'appareil lui-même et l'en-tête Origin des
   // requêtes de navigateur doit correspondre à l'hôte contacté (protection CSRF).
-  const char *keys[2] = {"apikey", "Origin"};
-  server.collectHeaders(keys, 2);
+  const char *keys[3] = {"apikey", "Origin", "If-None-Match"};
+  server.collectHeaders(keys, 3);
   // API Server Handlers
-  apiServer.collectHeaders(keys, 2);
+  apiServer.collectHeaders(keys, 3);
   apiServer.on("/discovery", []() { webServer.handleDiscovery(apiServer); });
   apiServer.on("/rooms", []() {webServer.handleGetRooms(apiServer); });
   apiServer.on("/shades", []() { webServer.handleGetShades(apiServer); });
@@ -1181,7 +1201,7 @@ void Web::begin() {
   server.on("/setPositions", []() { webServer.handleSetPositions(server); });
   server.on("/setSensor", []() { webServer.handleSetSensor(server); });
   server.on("/upnp.xml", []() { SSDP.schema(server.client()); });
-  server.on("/", []() { webServer.handleStreamFile(server, "/index.html", _encoding_html); });
+  server.on("/", []() { webServer.handleStaticFile(server, "/index.html", _encoding_html, 0); });
   server.on("/login", []() { webServer.handleLogin(server); });
   server.on("/loginContext", []() { webServer.handleLoginContext(server); });
   server.on("/getReleases", []() {
@@ -1292,14 +1312,14 @@ void Web::begin() {
       }
 
     });
-  server.on("/index.js", []() { webServer.sendCacheHeaders(604800); webServer.handleStreamFile(server, "/index.js", "text/javascript"); });
-  server.on("/main.css", []() { webServer.sendCacheHeaders(604800); webServer.handleStreamFile(server, "/main.css", "text/css"); });
-  server.on("/widgets.css", []() { webServer.sendCacheHeaders(604800); webServer.handleStreamFile(server, "/widgets.css", "text/css"); });
-  server.on("/icons.css", []() {  webServer.sendCacheHeaders(604800); webServer.handleStreamFile(server, "/icons.css", "text/css"); });
-  server.on("/favicon.png", []() { webServer.sendCacheHeaders(604800); webServer.handleStreamFile(server, "/favicon.png", "image/png"); });
-  server.on("/icon.png", []() { webServer.sendCacheHeaders(604800); webServer.handleStreamFile(server, "/icon.png", "image/png"); });
-  server.on("/icon.svg", []() { webServer.sendCacheHeaders(604800); webServer.handleStreamFile(server, "/icon.svg", "image/svg+xml"); });
-  server.on("/apple-icon.png", []() { webServer.sendCacheHeaders(604800); webServer.handleStreamFile(server, "/apple-icon.png", "image/png"); });
+  server.on("/index.js", []() { webServer.handleStaticFile(server, "/index.js", "text/javascript", STATIC_CACHE_SECONDS); });
+  server.on("/main.css", []() { webServer.handleStaticFile(server, "/main.css", "text/css", STATIC_CACHE_SECONDS); });
+  server.on("/widgets.css", []() { webServer.handleStaticFile(server, "/widgets.css", "text/css", STATIC_CACHE_SECONDS); });
+  server.on("/icons.css", []() { webServer.handleStaticFile(server, "/icons.css", "text/css", STATIC_CACHE_SECONDS); });
+  server.on("/favicon.png", []() { webServer.handleStaticFile(server, "/favicon.png", "image/png", STATIC_CACHE_SECONDS); });
+  server.on("/icon.png", []() { webServer.handleStaticFile(server, "/icon.png", "image/png", STATIC_CACHE_SECONDS); });
+  server.on("/icon.svg", []() { webServer.handleStaticFile(server, "/icon.svg", "image/svg+xml", STATIC_CACHE_SECONDS); });
+  server.on("/apple-icon.png", []() { webServer.handleStaticFile(server, "/apple-icon.png", "image/png", STATIC_CACHE_SECONDS); });
   server.onNotFound([]() { webServer.handleNotFound(server); });
   server.on("/controller", []() { webServer.handleController(server); });
   server.on("/rooms", []() { webServer.handleGetRooms(server); });

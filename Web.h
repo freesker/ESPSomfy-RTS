@@ -19,6 +19,7 @@ class Web {
     void handleLogin(WebServer &server);
     void handleLogout(WebServer &server);
     void handleStreamFile(WebServer &server, const char *filename, const char *encoding);
+    void handleStaticFile(WebServer &server, const char *filename, const char *encoding, uint32_t cacheSeconds);
     void handleController(WebServer &server);
     void handleLoginContext(WebServer &server);
     void handleGetRepeaters(WebServer &server);
