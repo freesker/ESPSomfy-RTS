@@ -98,7 +98,7 @@ bool ConfigFile::readString(char *buff, size_t len) {
   if(!this->file) return false;
   memset(buff, 0x00, len);
   uint16_t i = 0;
-  while(i < len) {
+  while(i < len - 1) { // dernier octet réservé au terminateur
     uint8_t val;
     if(this->file.read(&val, 1) == 1) {
       switch(val) {
@@ -108,7 +108,7 @@ bool ConfigFile::readString(char *buff, size_t len) {
           return true;
       }
       buff[i++] = val;
-      if(i == len) {
+      if(i == len - 1) {
         _rtrim(buff);
         return true;
       }
@@ -148,7 +148,7 @@ bool ConfigFile::readVarString(char *buff, size_t len) {
   uint8_t quotes = 0;
   uint16_t i = 0;
   uint16_t j = 0;
-  while(j < len) {
+  while(j < len + 2) { // les deux guillemets ne comptent pas dans la longueur utile
     uint8_t val;
     j++;
     if(this->file.read(&val, 1) == 1) {
@@ -166,7 +166,7 @@ bool ConfigFile::readVarString(char *buff, size_t len) {
           continue;
       }
       buff[i++] = val;
-      if(i == len) {
+      if(i == len - 1) {
         _rtrim(buff);
         return true;
       }
@@ -180,7 +180,7 @@ bool ConfigFile::readVarString(char *buff, size_t len) {
 
 bool ConfigFile::writeString(const char *val, size_t len, const char tok) {
   if(!this->isOpen()) return false;
-  int slen = strlen(val);
+  int slen = min((int)strlen(val), (int)len - 1); // une valeur trop longue casserait la largeur fixe de l'enregistrement
   if(slen > 0)
     if(this->file.write((uint8_t *)val, slen) != slen) return false;
   // Now we need to pad the end of the string so that it is of a fixed length.
@@ -861,12 +861,6 @@ bool ShadeConfigFile::readShadeRecord(SomfyShade *shade) {
     shade->myPos = shade->currentPos = shade->target = 100.0f;
   }
   pref.end();
-  if(shade->proto == radio_proto::GP_Relay || shade->proto == radio_proto::GP_Remote) {
-    pinMode(shade->gpioUp, OUTPUT);
-    pinMode(shade->gpioDown, OUTPUT);
-  }
-  if(shade->proto == radio_proto::GP_Remote)
-    pinMode(shade->gpioMy, OUTPUT);
   if(this->header.version >= 19) shade->roomId = this->readUInt8(0);
   if(this->file.position() != startPos + this->header.shadeRecordSize) {
     LOG_DLN("Reading to end of shade record");

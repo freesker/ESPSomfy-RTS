@@ -104,8 +104,9 @@ time_t Timestamp::getUTC(time_t t) {
 }
 char * Timestamp::getISOTime() { return this->getISOTime(this->getUTC()); }
 char * Timestamp::getISOTime(time_t epoch) {
-  struct tm *dt = localtime((time_t *)&epoch);
-  return this->formatISO(dt, this->tzOffset());
+  struct tm dt;
+  localtime_r(&epoch, &dt);
+  return this->formatISO(&dt, this->tzOffset());
 }
 char * Timestamp::formatISO(struct tm *dt, int tz) {
   int tzHrs = floor(tz/100);
@@ -121,9 +122,10 @@ int Timestamp::calcTZOffset(time_t *dt) {
   localtime_r(dt, &tmLocal);
   long diff = mktime(&tmLocal) - mktime(&tmUTC);
   if(tmLocal.tm_isdst) diff += 3600;
-  int hrs = (int)((diff/3600) * 100);
-  int mins = diff - (hrs * 36);
-  return hrs + mins;
+  // Décalage au format hhmm signé : +05:30 donne 530, -03:30 donne -330 (l'ancien calcul mélangeait secondes et minutes).
+  int hrs = (int)(diff / 3600);
+  int mins = (int)((labs(diff) % 3600) / 60);
+  return hrs * 100 + (diff < 0 ? -mins : mins);
 }
 int Timestamp::tzOffset() {
   time_t now;

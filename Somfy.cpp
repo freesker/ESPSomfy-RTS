@@ -530,6 +530,16 @@ bool SomfyShadeController::begin() {
     this->configLoaded = true;
   }
   this->transceiver.begin();
+  // Les broches des volets relais sont configurées une fois la configuration validée et chargée,
+  // et non pendant la lecture de chaque enregistrement (un backup d'une autre carte pilotait des
+  // broches arbitraires avant tout contrôle).
+  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
+    SomfyShade *shade = &this->shades[i];
+    if(shade->getShadeId() == 255 || (shade->proto != radio_proto::GP_Relay && shade->proto != radio_proto::GP_Remote)) continue;
+    if(GPIO_IS_VALID_OUTPUT_GPIO(shade->gpioUp)) pinMode(shade->gpioUp, OUTPUT);
+    if(GPIO_IS_VALID_OUTPUT_GPIO(shade->gpioDown)) pinMode(shade->gpioDown, OUTPUT);
+    if(shade->proto == radio_proto::GP_Remote && GPIO_IS_VALID_OUTPUT_GPIO(shade->gpioMy)) pinMode(shade->gpioMy, OUTPUT);
+  }
 
   // Set the radio type for shades that have yet to be specified.
   bool saveFlag = false;
@@ -729,7 +739,7 @@ bool SomfyShade::linkRemote(uint32_t address, uint16_t rollingCode) {
   // just return true after setting the rolling code
   for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
     if(this->linkedRemotes[i].getRemoteAddress() == address) {
-      this->linkedRemotes[i].setRollingCode(rollingCode);
+      if(rollingCode != 0) this->linkedRemotes[i].setRollingCode(rollingCode); // ne pas remettre à 0 un code connu
       return true;
     }
   }
@@ -3082,7 +3092,7 @@ int8_t SomfyShade::fromJSON(JsonObject &obj) {
     if(obj.containsKey("remoteAddress")) this->setRemoteAddress(obj["remoteAddress"]);
     if(obj.containsKey("tiltTime")) this->tiltTime = obj["tiltTime"];
     if(obj.containsKey("stepSize")) this->stepSize = obj["stepSize"];
-    if(obj.containsKey("hasTilt")) this->tiltType = static_cast<bool>(obj["hasTilt"]) ? tilt_types::none : tilt_types::tiltmotor;
+    if(obj.containsKey("hasTilt")) this->tiltType = static_cast<bool>(obj["hasTilt"]) ? tilt_types::tiltmotor : tilt_types::none;
     if(obj.containsKey("bitLength")) this->bitLength = obj["bitLength"];
     if(obj.containsKey("proto")) this->proto = static_cast<radio_proto>(obj["proto"].as<uint8_t>());
     if(obj.containsKey("sunSensor")) this->setSunSensor(obj["sunSensor"]);
@@ -3178,7 +3188,7 @@ void SomfyShade::toJSONRef(JsonResponse &json) {
   json.addElem("paired", this->paired);
   json.addElem("shadeType", static_cast<uint8_t>(this->shadeType));
   json.addElem("flipCommands", this->flipCommands);
-  json.addElem("flipPosition", this->flipCommands);
+  json.addElem("flipPosition", this->flipPosition);
   json.addElem("bitLength", this->bitLength);
   json.addElem("proto", static_cast<uint8_t>(this->proto));
   json.addElem("flags", this->flags);
@@ -3585,8 +3595,16 @@ uint32_t SomfyShadeController::getNextRemoteAddress(uint8_t id) {
   // The assumption here is that the max number of groups will
   // always be less than or equal to the max number of shades.
   while(i < SOMFY_MAX_SHADES) {
-    if((i < SOMFY_MAX_SHADES && this->shades[i].getShadeId() != 255 && this->shades[i].getRemoteAddress() == address) ||
-      (i < SOMFY_MAX_GROUPS && this->groups[i].getGroupId() != 255 && this->groups[i].getRemoteAddress() == address)) {
+    bool used = (this->shades[i].getShadeId() != 255 && this->shades[i].getRemoteAddress() == address) ||
+      (i < SOMFY_MAX_GROUPS && this->groups[i].getGroupId() != 255 && this->groups[i].getRemoteAddress() == address) ||
+      (i < SOMFY_MAX_REPEATERS && this->repeaters[i] == address);
+    // Les télécommandes physiques liées partagent l'espace de clés NVS des rolling codes.
+    if(!used && this->shades[i].getShadeId() != 255) {
+      for(uint8_t r = 0; r < SOMFY_MAX_LINKED_REMOTES; r++) {
+        if(this->shades[i].linkedRemotes[r].getRemoteAddress() == address) { used = true; break; }
+      }
+    }
+    if(used) {
       address++;
       i = 0; // Start over we cannot share addresses.
     }
@@ -3904,7 +3922,7 @@ bool SomfyShadeController::loadShadesFile(const char *filename) {
 uint16_t SomfyRemote::getNextRollingCode() {
   pref.begin("ShadeCodes");
   uint16_t code = pref.getUShort(this->m_remotePrefId, 0);
-  code++;
+  if(++code == 0) code = 1; // le décodeur rejette un rolling code nul
   pref.putUShort(this->m_remotePrefId, code);
   pref.end();
   this->p_lastRollingCode(code);

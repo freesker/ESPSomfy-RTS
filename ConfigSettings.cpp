@@ -43,7 +43,7 @@ void appver_t::parse(const char *ver) {
   // Now lets parse this pig.
   memset(this, 0x00, sizeof(appver_t));
   strlcpy(this->name, ver, sizeof(this->name));
-  char num[3];
+  char num[4]; // trois chiffres et le terminateur
   uint8_t i = 0;
   memset(num, 0x00, sizeof(num));
   for(uint8_t j = 0; j < 3 && i < strlen(ver);) {
@@ -76,7 +76,7 @@ void appver_t::parse(const char *ver) {
       break;
   }
   this->build = static_cast<uint8_t>(atoi(num) & 0xFF);
-  if(strlen(ver) < i) strlcpy(this->suffix, &ver[i], sizeof(this->suffix));
+  if(i < strlen(ver)) strlcpy(this->suffix, &ver[i], sizeof(this->suffix));
 }
 bool appver_t::toJSON(JsonObject &obj) {
   obj["name"] = this->name;

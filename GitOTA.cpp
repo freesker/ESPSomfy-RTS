@@ -308,7 +308,7 @@ int16_t GitRepo::getReleases(uint8_t num) {
   main->main = true;
   strcpy(main->version.name, "main");
   strcpy(main->name, "Main");
-  strcpy(main->hwVersions, "32,s3");
+  strcpy(main->hwVersions, "32,s2,s3,c3");
   char url[128];
   snprintf(url, sizeof(url), "https://api.github.com/repos/rstrouse/espsomfy-rts/releases?per_page=%d&page=1", count);
   WiFiClientSecure sclient;

@@ -46,9 +46,8 @@ void Web::startup() {
 }
 void Web::loop() {
   server.handleClient();
-  delay(1);
   apiServer.handleClient();
-  delay(1);
+  yield();
 }
 void Web::sendCacheHeaders(uint32_t seconds) {
   char buff[64];
@@ -844,7 +843,7 @@ void Web::handleGroup(WebServer &server) {
     sendError(server, 405, "Invalid Http method");
 }
 void Web::handleDiscovery(WebServer &server) {
-  HTTPMethod method = apiServer.method();
+  HTTPMethod method = server.method();
   if (method == HTTP_POST || method == HTTP_GET) {
     LOG_DLN("Discovery Requested");
     char connType[10] = "Unknown";
@@ -2335,8 +2334,17 @@ void Web::begin() {
           server.send(400, _encoding_json, g_content);
           return;
         }
+        transceiver_config_t before = somfy.transceiver.config;
         somfy.transceiver.fromJSON(obj);
         somfy.transceiver.save();
+        // SPI.begin est sans effet une fois le bus initialisé : un changement de broches SPI n'est
+        // pris en compte qu'après redémarrage.
+        if(before.SCKPin != somfy.transceiver.config.SCKPin || before.MOSIPin != somfy.transceiver.config.MOSIPin ||
+           before.MISOPin != somfy.transceiver.config.MISOPin || before.CSNPin != somfy.transceiver.config.CSNPin) {
+          LOG_ILN("Rebooting ESP for new SPI pin settings...");
+          rebootDelay.reboot = true;
+          rebootDelay.rebootTime = millis() + 1000;
+        }
         JsonResponse resp;
         resp.beginResponse(&server, g_content, sizeof(g_content));
         resp.beginObject();
@@ -2685,6 +2693,7 @@ void Web::begin() {
             if(room) room->sortOrder = order++;
           }
         }
+        somfy.isDirty = true;
         server.send(200, "application/json", "{\"status\":\"OK\",\"desc\":\"Successfully set room order\"}");
       }
       else {
@@ -2716,6 +2725,7 @@ void Web::begin() {
             if(shade) shade->sortOrder = order++;
           }
         }
+        somfy.isDirty = true;
         server.send(200, "application/json", "{\"status\":\"OK\",\"desc\":\"Successfully set shade order\"}");
       }
       else {
@@ -2747,6 +2757,7 @@ void Web::begin() {
             if(group) group->sortOrder = order++;
           }
         }
+        somfy.isDirty = true;
         server.send(200, "application/json", "{\"status\":\"OK\",\"desc\":\"Successfully set group order\"}");
       }
       else {
