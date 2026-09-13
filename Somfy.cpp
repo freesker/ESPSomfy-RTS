@@ -621,23 +621,34 @@ bool SomfyShadeController::begin() {
   if(saveFlag) somfy.commit();
   return true;
 }
-void SomfyShadeController::commit() {
-  if(git.lockFS) return;
+// Persiste la configuration. Pendant un OTA (lockFS) la modification est conservée en attente
+// (isDirty) au lieu d'être perdue ; un échec d'ouverture ou d'écriture est signalé à l'appelant.
+bool SomfyShadeController::commit() {
+  if(git.lockFS) {
+    this->isDirty = true;
+    return false;
+  }
   esp_task_wdt_reset(); // Make sure we don't reset inadvertently.
   ShadeConfigFile file;
-  file.begin();
-  file.save(this);
+  if(!file.begin()) return false;
+  bool ok = file.save(this);
   file.end();
+  if(!ok) {
+    LOG_ELN("Error writing shades.cfg");
+    return false;
+  }
   this->isDirty = false;
   this->lastCommit = millis();
+  return true;
 }
-void SomfyShadeController::writeBackup() {
-  if(git.lockFS) return;
+bool SomfyShadeController::writeBackup() {
+  if(git.lockFS) return false;
   esp_task_wdt_reset(); // Make sure we don't reset inadvertently.
   ShadeConfigFile file;
-  file.begin("/controller.backup", false);
-  file.backup(this);
+  if(!file.begin("/controller.backup", false)) return false;
+  bool ok = file.backup(this);
   file.end();
+  return ok;
 }
 // Retire des groupes les ids de volets qui n'existent plus (backup d'un autre appareil, ancien
 // écrasement) : un id orphelin faisait déréférencer un pointeur nul à chaque trame capteur.
@@ -3130,8 +3141,8 @@ bool SomfyShade::save() {
   this->publish();
   return true;
 }
-bool SomfyRoom::save() { somfy.commit(); return true; }
-bool SomfyGroup::save() { somfy.commit(); return true; }
+bool SomfyRoom::save() { return somfy.commit(); }
+bool SomfyGroup::save() { return somfy.commit(); }
 bool SomfyShade::isToggle() {
   switch(this->shadeType) {
     case shade_types::garage1:

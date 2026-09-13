@@ -580,8 +580,8 @@ class SomfyShadeController {
     void emitState(uint8_t num = 255);
     void publish();
     void processWaitingFrame();
-    void commit();
-    void writeBackup();
+    bool commit();
+    bool writeBackup();
     bool loadShadesFile(const char *filename);
     #ifdef USE_NVS
     bool loadLegacy();

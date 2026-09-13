@@ -20,8 +20,10 @@ extern ConfigSettings settings;
 
 bool ConfigFile::begin(const char* filename, bool readOnly) {
   this->file = LittleFS.open(filename, readOnly ? "r" : "w");
-  this->_opened = true;
-  return true;
+  this->readOnly = readOnly;
+  this->_opened = (bool)this->file;
+  if(!this->_opened) LOG_EF("Unable to open %s\n", filename);
+  return this->_opened;
 }
 void ConfigFile::end() {
   if(this->isOpen()) {
@@ -327,24 +329,25 @@ bool ShadeConfigFile::save(SomfyShadeController *s) {
   this->header.settingsRecordSize = 0;
   this->header.netRecordSize = 0;
   this->header.transRecordSize = 0;
-  this->writeHeader();
+  if(!this->isOpen()) return false;
+  bool ok = this->writeHeader();
   for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
     SomfyRoom *room = &s->rooms[i];
     if(room->roomId != 0)
-      this->writeRoomRecord(room);
+      ok = this->writeRoomRecord(room) && ok;
   }
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     SomfyShade *shade = &s->shades[i];
     if(shade->getShadeId() != 255)
-      this->writeShadeRecord(shade);
+      ok = this->writeShadeRecord(shade) && ok;
   }
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
     SomfyGroup *group = &s->groups[i];
     if(group->getGroupId() != 255)
-      this->writeGroupRecord(group);
+      ok = this->writeGroupRecord(group) && ok;
   }
-  this->writeRepeaterRecord(s);
-  return true;
+  ok = this->writeRepeaterRecord(s) && ok;
+  return ok;
 }
 bool ShadeConfigFile::backup(SomfyShadeController *s) {
   this->header.version = SHADE_HDR_VER;
@@ -360,27 +363,28 @@ bool ShadeConfigFile::backup(SomfyShadeController *s) {
   this->header.settingsRecordSize = settings.calcSettingsRecSize();
   this->header.netRecordSize = settings.calcNetRecSize();
   this->header.transRecordSize = TRANS_REC_SIZE;
-  this->writeHeader();
+  if(!this->isOpen()) return false;
+  bool ok = this->writeHeader();
   for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
     SomfyRoom *room = &s->rooms[i];
     if(room->roomId != 0)
-      this->writeRoomRecord(room);
+      ok = this->writeRoomRecord(room) && ok;
   }
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     SomfyShade *shade = &s->shades[i];
     if(shade->getShadeId() != 255)
-      this->writeShadeRecord(shade);
+      ok = this->writeShadeRecord(shade) && ok;
   }
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
     SomfyGroup *group = &s->groups[i];
     if(group->getGroupId() != 255)
-      this->writeGroupRecord(group);
+      ok = this->writeGroupRecord(group) && ok;
   }
-  this->writeRepeaterRecord(s);
-  this->writeSettingsRecord();
-  this->writeNetRecord();
-  this->writeTransRecord(s->transceiver.config);
-  return true;
+  ok = this->writeRepeaterRecord(s) && ok;
+  ok = this->writeSettingsRecord() && ok;
+  ok = this->writeNetRecord() && ok;
+  ok = this->writeTransRecord(s->transceiver.config) && ok;
+  return ok;
 }
 bool ShadeConfigFile::validate() {
   this->readHeader();
