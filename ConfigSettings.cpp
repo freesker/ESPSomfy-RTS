@@ -128,6 +128,16 @@ bool BaseSettings::saveFile(const char *filename) {
   file.close();
   return true;
 }
+// Un secret n'est jamais renvoyé au client : l'API renvoie SECRET_MASK à la place. Si le client
+// nous renvoie ce masque (formulaire non modifié) la valeur en mémoire est conservée.
+bool BaseSettings::parseSecretString(JsonObject &obj, const char *prop, char *pdest, size_t size, bool allowEmpty) {
+  if(!obj.containsKey(prop) || !obj[prop].is<const char*>()) return false;
+  const char *val = obj[prop].as<const char*>();
+  if(strcmp(val, SECRET_MASK) == 0) return false;
+  if(!allowEmpty && strlen(val) == 0) return false;
+  strlcpy(pdest, val, size);
+  return true;
+}
 bool BaseSettings::parseValueString(JsonObject &obj, const char *prop, char *pdest, size_t size) {
   if(obj.containsKey(prop)) strlcpy(pdest, obj[prop], size);
   return true;
@@ -315,7 +325,7 @@ void MQTTSettings::toJSON(JsonResponse &json) {
   json.addElem("hostname", this->hostname);
   json.addElem("port", (uint32_t)this->port);
   json.addElem("username", this->username);
-  json.addElem("password", this->password);
+  json.addElem("password", strlen(this->password) > 0 ? SECRET_MASK : "");
   json.addElem("rootTopic", this->rootTopic);
   json.addElem("discoTopic", this->discoTopic);
 }
@@ -327,7 +337,7 @@ bool MQTTSettings::toJSON(JsonObject &obj) {
   obj["hostname"] = this->hostname;
   obj["port"] = this->port;
   obj["username"] = this->username;
-  obj["password"] = this->password;
+  obj["password"] = strlen(this->password) > 0 ? SECRET_MASK : "";
   obj["rootTopic"] = this->rootTopic;
   obj["discoTopic"] = this->discoTopic;
   return true;
@@ -338,7 +348,7 @@ bool MQTTSettings::fromJSON(JsonObject &obj) {
   this->parseValueString(obj, "protocol", this->protocol, sizeof(this->protocol));
   this->parseValueString(obj, "hostname", this->hostname, sizeof(this->hostname));
   this->parseValueString(obj, "username", this->username, sizeof(this->username));
-  this->parseValueString(obj, "password", this->password, sizeof(this->password));
+  this->parseSecretString(obj, "password", this->password, sizeof(this->password));
   this->parseValueString(obj, "rootTopic", this->rootTopic, sizeof(this->rootTopic));
   this->parseValueString(obj, "discoTopic", this->discoTopic, sizeof(this->discoTopic));
   if(obj.containsKey("port")) this->port = obj["port"];
@@ -516,24 +526,28 @@ bool SecuritySettings::begin() {
 bool SecuritySettings::fromJSON(JsonObject &obj) {
   if(obj.containsKey("type")) this->type = static_cast<security_types>(obj["type"].as<uint8_t>());
   this->parseValueString(obj, "username", this->username, sizeof(this->username));
-  this->parseValueString(obj, "password", this->password, sizeof(this->password));
-  this->parseValueString(obj, "pin", this->pin, sizeof(this->pin));
+  this->parseSecretString(obj, "password", this->password, sizeof(this->password), false);
+  this->parseSecretString(obj, "pin", this->pin, sizeof(this->pin), false);
   if(obj.containsKey("permissions")) this->permissions = obj["permissions"];
   return true;
 }
 bool SecuritySettings::toJSON(JsonObject &obj) {
   obj["type"] = static_cast<uint8_t>(this->type);
   obj["username"] = this->username;
-  obj["password"] = this->password;
-  obj["pin"] = this->pin;
+  obj["password"] = strlen(this->password) > 0 ? SECRET_MASK : "";
+  obj["hasPassword"] = strlen(this->password) > 0;
+  obj["pin"] = "";
+  obj["hasPin"] = strlen(this->pin) > 0;
   obj["permissions"] = this->permissions;
   return true;  
 }
 void SecuritySettings::toJSON(JsonResponse &json) {
   json.addElem("type", static_cast<uint8_t>(this->type));
   json.addElem("username", this->username);
-  json.addElem("password", this->password);
-  json.addElem("pin", this->pin);
+  json.addElem("password", strlen(this->password) > 0 ? SECRET_MASK : "");
+  json.addElem("hasPassword", strlen(this->password) > 0);
+  json.addElem("pin", "");
+  json.addElem("hasPin", strlen(this->pin) > 0);
   json.addElem("permissions", this->permissions);
 }
 
@@ -564,9 +578,9 @@ void SecuritySettings::print() {
   Serial.print(" Username:[");
   Serial.print(this->username);
   Serial.print("] Password:[");
-  Serial.print(this->password);
+  Serial.print(strlen(this->password) > 0 ? "set" : "none");
   Serial.print("] Pin:[");
-  Serial.print(this->pin);
+  Serial.print(strlen(this->pin) > 0 ? "set" : "none");
   Serial.print("] Permissions:");
   Serial.println(this->permissions);
 }
@@ -578,21 +592,23 @@ bool WifiSettings::begin() {
 }
 bool WifiSettings::fromJSON(JsonObject &obj) {
   this->parseValueString(obj, "ssid", this->ssid, sizeof(this->ssid));
-  this->parseValueString(obj, "passphrase", this->passphrase, sizeof(this->passphrase));
+  this->parseSecretString(obj, "passphrase", this->passphrase, sizeof(this->passphrase));
   if(obj.containsKey("roaming")) this->roaming = obj["roaming"];
   if(obj.containsKey("hidden")) this->hidden = obj["hidden"];
   return true;
 }
 bool WifiSettings::toJSON(JsonObject &obj) {
   obj["ssid"] = this->ssid;
-  obj["passphrase"] = this->passphrase;
+  obj["passphrase"] = strlen(this->passphrase) > 0 ? SECRET_MASK : "";
+  obj["hasPassphrase"] = strlen(this->passphrase) > 0;
   obj["roaming"] = this->roaming;
   obj["hidden"] = this->hidden;
   return true;
 }
 void WifiSettings::toJSON(JsonResponse &json) {
   json.addElem("ssid", this->ssid);
-  json.addElem("passphrase", this->passphrase);
+  json.addElem("passphrase", strlen(this->passphrase) > 0 ? SECRET_MASK : "");
+  json.addElem("hasPassphrase", strlen(this->passphrase) > 0);
   json.addElem("roaming", this->roaming);
   json.addElem("hidden", this->hidden);
 }
@@ -640,7 +656,7 @@ void WifiSettings::print() {
   Serial.print(" SSID: [");
   Serial.print(this->ssid);
   Serial.print("] PassPhrase: [");
-  Serial.print(this->passphrase);
+  Serial.print(strlen(this->passphrase) > 0 ? "set" : "none");
   Serial.println("]");  
 }
 void WifiSettings::printNetworks() {

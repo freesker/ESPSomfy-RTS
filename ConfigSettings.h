@@ -4,6 +4,7 @@
 #define configsettings_h
 #include "WResp.h"
 #define FW_VERSION "v2.4.7"
+#define SECRET_MASK "********"
 enum class conn_types_t : byte {
     unset = 0x00,
     wifi = 0x01,
@@ -49,6 +50,7 @@ class BaseSettings {
     void toJSON(JsonResponse &json);
     bool parseIPAddress(JsonObject &obj, const char *prop, IPAddress *);
     bool parseValueString(JsonObject &obj, const char *prop, char *dest, size_t size);
+    bool parseSecretString(JsonObject &obj, const char *prop, char *dest, size_t size, bool allowEmpty = true);
     int parseValueInt(JsonObject &obj, const char *prop, int defVal);
     double parseValueDouble(JsonObject &obj, const char *prop, double defVal);
     bool saveFile(const char* filename);

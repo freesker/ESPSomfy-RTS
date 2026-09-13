@@ -1129,7 +1129,6 @@ class UIBinder {
             overlay.remove();
             if (err) ui.serviceError(err);
             else {
-                console.log(security);
                 general.setSecurityConfig(security);
             }
         });
@@ -1231,7 +1230,6 @@ class Security {
         let msg = pnl.querySelector('#spanLoginMessage');
         msg.innerHTML = '';
         let sec = ui.fromElement(pnl).login;
-        console.log(sec);
         let pin = '';
         switch (sec.type) {
             case 1:
@@ -1495,12 +1493,7 @@ class General {
             security: {
                 type: security.type, username: security.username, password: security.password,
                 permissions: { configOnly: makeBool(security.permissions & 0x01) },
-                pin: {
-                    d0: security.pin[0],
-                    d1: security.pin[1],
-                    d2: security.pin[2],
-                    d3: security.pin[3]
-                }
+                pin: { d0: '', d1: '', d2: '', d3: '' }
             }
         };
         ui.toElement(document.getElementById('divSecurityOptions'), obj);
@@ -1539,17 +1532,16 @@ class General {
         }
     }
     saveSecurity() {
-        let security = ui.fromElement(document.getElementById('divSecurityOptions')).security;
-        console.log(security);
-        let sec = { type: security.type, username: security.username, password: security.password, pin: '', perm: 0 };
+        let form = ui.fromElement(document.getElementById('divSecurityOptions')).security;
+        let sec = { type: form.type, username: form.username, password: form.password, pin: '', permissions: 0 };
+        const passwordUnchanged = sec.password === '********';
         // Pin entry.
         for (let i = 0; i < 4; i++) {
-            sec.pin += security.pin[`d${i}`];
+            sec.pin += form.pin[`d${i}`] || '';
         }
-        sec.permissions |= security.permissions.configOnly ? 0x01 : 0x00;
+        sec.permissions |= form.permissions.configOnly ? 0x01 : 0x00;
         let confirm = '';
-        console.log(sec);
-        if (security.type === 1) { // Pin Entry
+        if (form.type === 1) { // Pin Entry
             // Make sure our pin is 4 digits.
             if (sec.pin.length !== 4) {
                 ui.errorMessage('Invalid Pin').querySelector('.sub-message').innerHTML = 'Pins must be exactly 4 alpha-numeric values in length.  Please enter a complete pin.';
@@ -1557,7 +1549,7 @@ class General {
             }
             confirm = '<p>Please keep your PIN safe and above all remember it.  The only way to recover a lost PIN is to completely reload the onboarding firmware which will wipe out your configuration.</p><p>Have you stored your PIN in a safe place?</p>';
         }
-        else if (security.type === 2) { // Password
+        else if (form.type === 2) { // Password
             if (sec.username.length === 0) {
                 ui.errorMessage('No Username Provided').querySelector('.sub-message').innerHTML = 'You must provide a username for password security.';
                 return;
@@ -1567,20 +1559,20 @@ class General {
                 return;
             }
 
-            if (sec.password.length === 0) {
+            if (!passwordUnchanged && sec.password.length === 0) {
                 ui.errorMessage('No Password Provided').querySelector('.sub-message').innerHTML = 'You must provide a password for password security.';
                 return;
             }
-            if (sec.password.length > 32) {
+            if (!passwordUnchanged && sec.password.length > 32) {
                 ui.errorMessage('Invalid Password').querySelector('.sub-message').innerHTML = 'The maximum password length is 32 characters.';
                 return;
             }
 
-            if (security.repeatpassword.length === 0) {
+            if (!passwordUnchanged && form.repeatpassword.length === 0) {
                 ui.errorMessage('Re-enter Password').querySelector('.sub-message').innerHTML = 'You must re-enter the password in the Re-enter Password field.';
                 return;
             }
-            if (sec.password !== security.repeatpassword) {
+            if (!passwordUnchanged && sec.password !== form.repeatpassword) {
                 ui.errorMessage('Passwords do not Match').querySelector('.sub-message').innerHTML = 'Please re-enter the password exactly as you typed it in the Re-enter Password field.';
                 return;
             }
@@ -1590,8 +1582,9 @@ class General {
             putJSONSync('/saveSecurity', sec, (err, objApiKey) => {
                 prompt.remove();
                 if (err) ui.serviceError(err);
-                else {
-                    console.log(objApiKey);
+                else if (objApiKey && objApiKey.apiKey) {
+                    security.apiKey = objApiKey.apiKey;
+                    security.authenticated = true;
                 }
             });
         });
@@ -1668,7 +1661,6 @@ class Wifi {
     loadNetwork() {
         let pnl = document.getElementById('divNetAdapter');
         getJSONSync('/networksettings', (err, settings) => {
-            console.log(settings);
             if (err) {
                 ui.serviceError(err);
             }
@@ -4228,7 +4220,6 @@ class MQTT {
             if (err) 
                 console.log(err);
             else {
-                console.log(settings);
                 ui.toElement(document.getElementById('divMQTT'), { mqtt: settings });
                 document.getElementById('divDiscoveryTopic').style.display = settings.pubDisco ? '' : 'none';
             }

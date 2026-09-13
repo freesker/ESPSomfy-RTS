@@ -169,8 +169,6 @@ void Web::handleLogin(WebServer &server) {
     }
     // At this point we should have all the data we need to login.
     if(settings.Security.type == security_types::PinEntry) {
-      Serial.print("Validating pin ");
-      Serial.println(pin);
       if(strlen(pin) == 0 || strcmp(pin, settings.Security.pin) != 0) {
         obj["success"] = false;
         obj["msg"] = "Invalid Pin Entry";
@@ -2272,10 +2270,10 @@ void Web::begin() {
         settings.Security.save();
         char token[65];
         webServer.createAPIToken(server.client().remoteIP(), token);
-        obj["apiKey"] = token;
         DynamicJsonDocument sdoc(1024);
         JsonObject sobj = sdoc.to<JsonObject>();
         settings.Security.toJSON(sobj);
+        sobj["apiKey"] = token;
         serializeJson(sdoc, g_content);
         server.send(200, _encoding_json, g_content);
       }
@@ -2440,7 +2438,7 @@ void Web::begin() {
             if(objWifi.containsKey("ssid") && objWifi["ssid"].as<String>().compareTo(settings.WIFI.ssid) != 0) {
               if(WiFi.softAPgetStationNum() == 0) reboot = true;
             }
-            if(objWifi.containsKey("passphrase") && objWifi["passphrase"].as<String>().compareTo(settings.WIFI.passphrase) != 0) {
+            if(objWifi.containsKey("passphrase") && objWifi["passphrase"].as<String>().compareTo(SECRET_MASK) != 0 && objWifi["passphrase"].as<String>().compareTo(settings.WIFI.passphrase) != 0) {
               if(WiFi.softAPgetStationNum() == 0) reboot = true;
             }
           }
@@ -2513,6 +2511,7 @@ void Web::begin() {
         String passphrase = "";
         if (obj.containsKey("ssid")) ssid = obj["ssid"].as<String>();
         if (obj.containsKey("passphrase")) passphrase = obj["passphrase"].as<String>();
+        if (passphrase.compareTo(SECRET_MASK) == 0) passphrase = settings.WIFI.passphrase;
         bool reboot;
         if (ssid.compareTo(settings.WIFI.ssid) != 0) reboot = true;
         if (passphrase.compareTo(settings.WIFI.passphrase) != 0) reboot = true;
