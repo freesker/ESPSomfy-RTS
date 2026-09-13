@@ -96,15 +96,19 @@ bool Web::isOriginAllowed(WebServer &server) {
   String host = server.hostHeader();
   return origin.length() > 0 && origin.equalsIgnoreCase(host);
 }
-bool Web::hasValidToken(WebServer &server, bool cfg) {
-  if(!this->isOriginAllowed(server)) return false;
+// Vérifie un jeton d'API pour l'adresse du client (utilisé par HTTP et par le WebSocket).
+bool Web::isTokenValid(IPAddress ip, const char *token, bool cfg) {
   if(settings.Security.type == security_types::None) return true;
   if(!cfg && (settings.Security.permissions & static_cast<uint8_t>(security_permissions::ConfigOnly)) == static_cast<uint8_t>(security_permissions::ConfigOnly)) return true;
-  if(!server.hasHeader("apikey")) return false;
-  char token[65];
-  memset(token, 0x00, sizeof(token));
-  this->createAPIToken(server.client().remoteIP(), token);
-  return constantTimeEquals(token, server.header("apikey").c_str());
+  if(!token || strlen(token) == 0) return false;
+  char expected[65];
+  memset(expected, 0x00, sizeof(expected));
+  this->createAPIToken(ip, expected);
+  return constantTimeEquals(expected, token);
+}
+bool Web::hasValidToken(WebServer &server, bool cfg) {
+  if(!this->isOriginAllowed(server)) return false;
+  return this->isTokenValid(server.client().remoteIP(), server.hasHeader("apikey") ? server.header("apikey").c_str() : "", cfg);
 }
 bool Web::isAuthenticated(WebServer &server, bool cfg) {
   if(this->hasValidToken(server, cfg)) return true;

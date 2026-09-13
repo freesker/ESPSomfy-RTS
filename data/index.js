@@ -469,7 +469,9 @@ async function initSockets() {
     ui.waitMessage(document.getElementById('divContainer')).classList.add('socket-wait');
     let host = window.location.protocol === 'file:' ? hst : window.location.hostname;
     try {
-        socket = new WebSocket(`ws://${host}:8080/`);
+        const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const wsAuth = security.apiKey ? `?apikey=${encodeURIComponent(security.apiKey)}` : '';
+        socket = new WebSocket(`${wsProto}://${host}:8080/${wsAuth}`);
         socket.onmessage = (evt) => {
             if (evt.data.startsWith('42')) {
                 let ndx = evt.data.indexOf(',');
@@ -1252,14 +1254,12 @@ class Security {
             else {
                 console.log(log);
                 if (log.success) {
+                    this.apiKey = log.apiKey;
+                    this.authenticated = true;
                     if (typeof socket === 'undefined' || !socket) (async () => { await initSockets(); })();
-                    //ui.setMode(mode);
-
                     document.getElementById('divUnauthenticated').style.display = 'none';
                     document.getElementById('divAuthenticated').style.display = '';
                     document.getElementById('divContainer').setAttribute('data-auth', true);
-                    this.apiKey = log.apiKey;
-                    this.authenticated = true;
                     let evt = new CustomEvent('afterlogin', { detail: { authenticated: true } });
                     document.getElementById('divContainer').dispatchEvent(evt);
                 }

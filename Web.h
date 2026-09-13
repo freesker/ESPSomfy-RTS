@@ -50,6 +50,7 @@ class Web {
     bool createAPIPasswordToken(const IPAddress ipAddress, const char *username, const char *password, char *token);
     bool isAuthenticated(WebServer &server, bool cfg = false);
     bool hasValidToken(WebServer &server, bool cfg = false);
+    bool isTokenValid(IPAddress ip, const char *token, bool cfg = false);
     bool isOriginAllowed(WebServer &server);
 
     //void chunkRoomsResponse(WebServer &server, const char *elem = nullptr);
