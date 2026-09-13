@@ -2948,6 +2948,11 @@ class Somfy {
         row.innerHTML = html;
         frames.prepend(row);
         this.frames.push(frame);
+        // Journal borné : chaque trame reçue ajoutait une ligne DOM et un objet pour toujours.
+        while (this.frames.length > 200) {
+            this.frames.shift();
+            if (frames.lastElementChild) frames.lastElementChild.remove();
+        }
     }
     JSONPretty(obj, indent = 2) {
         if (Array.isArray(obj)) {
@@ -4662,12 +4667,12 @@ class Firmware {
             let ctx = { html: '', llvl: 0, lines: r.info.body.split('\r\n'), ndx: 0 };
             ctx.toHead = function (txt) {
                 let num = txt.indexOf(' ');
-                return `<h${num}>${txt.substring(num).trim()}</h${num}>`;
+                return `<h${esc(num)}>${esc(txt.substring(num).trim())}</h${esc(num)}>`;
             };
             ctx.toUL = function () {
                 let txt = this.lines[this.ndx++];
                 let tok = this.token(txt);
-                this.html += `<ul>${this.toLI(tok.txt)}`;
+                this.html += `<ul>${esc(this.toLI(tok.txt))}`;
                 while (this.ndx < this.lines.length) {
                     txt = this.lines[this.ndx];
                     let t = this.token(txt);
@@ -4682,7 +4687,7 @@ class Firmware {
                 }
                 this.html += '</ul>';
             };
-            ctx.toLI = function (txt) { return `<li>${txt.trim()}</li>`; }
+            ctx.toLI = function (txt) { return `<li>${esc(txt.trim())}</li>`; }
             ctx.token = function (txt) {
                 let tok = { ch: '', indent: 0, txt:'' }
                 for (let i = 0; i < txt.length; i++) {
@@ -4709,7 +4714,7 @@ class Firmware {
                         break;
                     case '':
                         this.ndx++;
-                        this.html += `<br/><div>${tok.txt}</div>`;
+                        this.html += `<br/><div>${esc(tok.txt)}</div>`;
                         break;
                     default:
                         this.ndx++;
