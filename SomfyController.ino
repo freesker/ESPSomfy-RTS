@@ -1,6 +1,8 @@
 #include <WiFi.h>
 #include <LittleFS.h>
 #include <esp_task_wdt.h>
+#include <Preferences.h>
+#include <Update.h>
 #include "Log.h"
 #include "ConfigSettings.h"
 #include "Network.h"
@@ -21,10 +23,43 @@ MQTTClass mqtt;
 GitUpdater git;
 
 uint32_t oldheap = 0;
+// Retour arrière automatique : après CRASH_BOOTS_BEFORE_ROLLBACK démarrages consécutifs terminés par
+// un plantage (panic, watchdog) sans atteindre STABLE_UPTIME_MS, l'autre partition applicative
+// (firmware précédent) est réactivée. Un redémarrage volontaire ou une coupure de courant ne compte pas.
+#define CRASH_BOOTS_BEFORE_ROLLBACK 3
+#define STABLE_UPTIME_MS 60000UL
+static bool bootMarkedStable = false;
+static void checkCrashLoop() {
+  esp_reset_reason_t reason = esp_reset_reason();
+  bool crash = reason == ESP_RST_PANIC || reason == ESP_RST_INT_WDT || reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT;
+  Preferences pref;
+  pref.begin("SYS");
+  uint8_t crashes = crash ? pref.getUChar("crashes", 0) + 1 : 0;
+  pref.putUChar("crashes", crashes);
+  if(crashes >= CRASH_BOOTS_BEFORE_ROLLBACK && Update.canRollBack()) {
+    LOG_EF("%u consecutive crashes, rolling back to the previous firmware\n", crashes);
+    pref.putUChar("crashes", 0);
+    pref.end();
+    Update.rollBack();
+    ESP.restart();
+  }
+  pref.end();
+  if(crash) LOG_EF("Boot after crash (reset reason %d), %u consecutive\n", (int)reason, crashes);
+}
+static void markBootStable() {
+  if(bootMarkedStable || millis() < STABLE_UPTIME_MS) return;
+  bootMarkedStable = true;
+  Preferences pref;
+  pref.begin("SYS");
+  if(pref.getUChar("crashes", 0) != 0) pref.putUChar("crashes", 0);
+  pref.end();
+  LOG_ILN("Firmware marked stable");
+}
 void setup() {
   Serial.begin(115200);
   LOG_ELN();
   LOG_ELN("Startup/Boot....");
+  checkCrashLoop();
   LOG_ELN("Mounting File System...");
   if(LittleFS.begin()) LOG_ELN("File system mounted successfully");
   else LOG_ELN("Error mounting file system");
@@ -55,7 +90,7 @@ void loop() {
     return;
   }
   uint32_t timing = millis();
-  
+  markBootStable();
   net.loop();
   if(millis() - timing > 100) LOG_IF("Timing Net: %ldms\n", millis() - timing);
   timing = millis();
