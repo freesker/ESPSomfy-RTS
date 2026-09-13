@@ -1,10 +1,13 @@
+# Environnements d'édition et de débogage
 .theia/
-debug_custom.json
-esp32.vsd
-esp32s3.svd
-debug.cfg
-
-SomfyController.ino.XIAO_ESP32S3.bin
-SomfyController.ino.esp32c3.bin
-SomfyController.ino.esp32s2.bin
 .vscode/settings.json
+debug_custom.json
+debug.cfg
+mise.toml
+.mise.toml
+node_modules/
+
+# Descriptions de registres et binaires : publiés avec les releases, jamais dans le dépôt
+*.svd
+*.bin
+build/

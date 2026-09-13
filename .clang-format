@@ -1,0 +1,12 @@
+# Style existant du projet (2 espaces, accolades attachées, lignes longues tolérées).
+# Non appliqué automatiquement : sert de référence pour les nouveaux fichiers.
+BasedOnStyle: Google
+IndentWidth: 2
+ColumnLimit: 160
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: WithoutElse
+SpaceBeforeParens: Never
+PointerAlignment: Right
+DerivePointerAlignment: false
+SortIncludes: false
