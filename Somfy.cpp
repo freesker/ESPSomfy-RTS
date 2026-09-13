@@ -749,9 +749,23 @@ void SomfyShade::clear() {
   this->stepSize = 100;
   this->repeats = 1;
   this->sortOrder = 255;
+  // Un emplacement libéré est réutilisé tel quel par addShade : tout état résiduel (pièce, flags
+  // capteur, GPIO d'un volet relais, dernière trame) serait hérité par le nouveau volet.
+  this->roomId = 0;
+  this->flags = 0;
+  this->gpioFlags = 0;
+  this->gpioDir = 0;
+  this->gpioUp = 0;
+  this->gpioDown = 0;
+  this->gpioMy = 0;
+  this->gpioRelease = 0;
+  this->lastMovement = 0;
+  this->pendingTiltAt = 0;
+  this->lastFrame = somfy_frame_t();
 }
 void SomfyRoom::clear() {
   this->roomId = 0;
+  this->sortOrder = 0;
   strcpy(this->name, "");
 }
 void SomfyGroup::clear() {
@@ -759,6 +773,14 @@ void SomfyGroup::clear() {
   this->setRemoteAddress(0);
   this->repeats = 0;
   this->roomId = 0;
+  this->sortOrder = 0;
+  this->flags = 0;
+  this->flipCommands = false;
+  this->direction = 0;
+  this->lastRollingCode = 0;
+  this->proto = somfy.transceiver.config.proto;
+  this->bitLength = somfy.transceiver.config.type;
+  this->lastFrame = somfy_frame_t();
   this->name[0] = 0x00;
   memset(&this->linkedShades, 0x00, sizeof(this->linkedShades));
 }
@@ -3608,7 +3630,9 @@ bool SomfyRemote::toJSON(JsonObject &obj) {
   return true;  
 }
 */
-void SomfyRemote::setRemoteAddress(uint32_t address) { this->m_remoteAddress = address; snprintf(this->m_remotePrefId, sizeof(this->m_remotePrefId), "_%lu", (unsigned long)this->m_remoteAddress); }
+// Une adresse Somfy tient sur 24 bits : au-delà, la clé NVS du rolling code était tronquée et
+// l'adresse ne correspondait jamais à celle reçue en écho.
+void SomfyRemote::setRemoteAddress(uint32_t address) { this->m_remoteAddress = address & 0xFFFFFF; snprintf(this->m_remotePrefId, sizeof(this->m_remotePrefId), "_%lu", (unsigned long)this->m_remoteAddress); }
 uint32_t SomfyRemote::getRemoteAddress() { return this->m_remoteAddress; }
 void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
@@ -3664,7 +3688,7 @@ void SomfyShadeController::publish() {
 uint8_t SomfyShadeController::getNextShadeId() {
   // There is no shortcut for this since the deletion of
   // a shade in the middle makes all of this very difficult.
-  for(uint8_t i = 1; i < SOMFY_MAX_SHADES - 1; i++) {
+  for(uint8_t i = 1; i <= SOMFY_MAX_SHADES; i++) {
     bool id_exists = false;
     for(uint8_t j = 0; j < SOMFY_MAX_SHADES; j++) {
       SomfyShade *shade = &this->shades[j];
@@ -3702,7 +3726,7 @@ int8_t SomfyShadeController::getMaxGroupOrder() {
 uint8_t SomfyShadeController::getNextGroupId() {
   // There is no shortcut for this since the deletion of
   // a group in the middle makes all of this very difficult.
-  for(uint8_t i = 1; i < SOMFY_MAX_GROUPS - 1; i++) {
+  for(uint8_t i = 1; i <= SOMFY_MAX_GROUPS; i++) {
     bool id_exists = false;
     for(uint8_t j = 0; j < SOMFY_MAX_GROUPS; j++) {
       SomfyGroup *group = &this->groups[j];
@@ -3722,7 +3746,7 @@ uint8_t SomfyShadeController::getNextGroupId() {
 uint8_t SomfyShadeController::getNextRoomId() {
   // There is no shortcut for this since the deletion of
   // a room in the middle makes all of this very difficult.
-  for(uint8_t i = 1; i < SOMFY_MAX_ROOMS - 1; i++) {
+  for(uint8_t i = 1; i <= SOMFY_MAX_ROOMS; i++) {
     bool id_exists = false;
     for(uint8_t j = 0; j < SOMFY_MAX_ROOMS; j++) {
       SomfyRoom *room = &this->rooms[j];
