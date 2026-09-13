@@ -409,11 +409,7 @@ bool NTPSettings::save() {
   pref.putString("ntpServer", this->ntpServer);
   pref.putString("posixZone", this->posixZone);
   pref.end();
-  struct tm dt;
-  configTime(0, 0, this->ntpServer);
-  if(!getLocalTime(&dt)) return false;
-  setenv("TZ", this->posixZone, 1);
-  return true;
+  return this->apply();
 }
 bool NTPSettings::load() {
   pref.begin("NTP");
@@ -443,11 +439,11 @@ bool NTPSettings::toJSON(JsonObject &obj) {
   obj["posixZone"] = this->posixZone;
   return true;
 }
-bool NTPSettings::apply() { 
-  struct tm dt;
-  configTime(0, 0, this->ntpServer);
-  if(!getLocalTime(&dt)) return false;
-  setenv("TZ", this->posixZone, 1);
+// configTzTime applique le fuseau immédiatement et lance SNTP sans attendre : l'ancien getLocalTime
+// bloquait 5 s au démarrage (avant même que le réseau ne soit monté) et le fuseau n'était alors jamais
+// appliqué avant une nouvelle sauvegarde des réglages.
+bool NTPSettings::apply() {
+  configTzTime(this->posixZone, this->ntpServer);
   return true;
 }
 IPSettings::IPSettings() {}

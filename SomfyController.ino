@@ -60,6 +60,10 @@ void setup() {
   LOG_ELN();
   LOG_ELN("Startup/Boot....");
   checkCrashLoop();
+  // Le watchdog est armé avant l'initialisation de la radio : un CC1101 absent ou mal câblé pouvait
+  // bloquer Init() indéfiniment sans qu'aucun chien de garde ne surveille le démarrage.
+  esp_task_wdt_init(7, true); //enable panic so ESP32 restarts
+  esp_task_wdt_add(NULL); //add current thread to WDT watch
   LOG_ELN("Mounting File System...");
   if(LittleFS.begin()) LOG_ELN("File system mounted successfully");
   else LOG_ELN("Error mounting file system");
@@ -73,8 +77,6 @@ void setup() {
   net.setup();  
   somfy.begin();
   //git.checkForUpdate();
-  esp_task_wdt_init(7, true); //enable panic so ESP32 restarts
-  esp_task_wdt_add(NULL); //add current thread to WDT watch
 
 }
 
