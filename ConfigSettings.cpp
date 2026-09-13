@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include "Log.h"
 #include <LittleFS.h>       // https://github.com/espressif/arduino-esp32/tree/master/libraries/LittleFS
 #include <time.h>
 #include <WiFi.h>
@@ -188,7 +189,7 @@ bool ConfigSettings::begin() {
       sprintf(this->chipModel, "UNK%d", static_cast<int>(ci.model));
       break;
   }
-  Serial.printf("Chip Model ESP32-%s\n", this->chipModel);
+  LOG_DF("Chip Model ESP32-%s\n", this->chipModel);
   this->fwVersion.parse(FW_VERSION);
   uint64_t mac = ESP.getEfuseMac();
   for(int i=0; i<17; i=i+8) {
@@ -216,7 +217,7 @@ bool ConfigSettings::load() {
   this->ssdpBroadcast = pref.getBool("ssdpBroadcast", true);
   this->checkForUpdate = pref.getBool("checkForUpdate", true);
   this->connType = static_cast<conn_types_t>(pref.getChar("connType", 0x00));
-  //Serial.printf("Preference GFG Free Entries: %d\n", pref.freeEntries());
+  //LOG_DF("Preference GFG Free Entries: %d\n", pref.freeEntries());
   pref.end();
   if(this->connType == conn_types_t::unset) {
     // We are doing this to convert the data from previous versions.
@@ -277,7 +278,7 @@ bool ConfigSettings::fromJSON(JsonObject &obj) {
 }
 void ConfigSettings::print() {
   this->Security.print();
-  Serial.printf("Connection Type: %u\n", (unsigned int) this->connType);
+  LOG_DF("Connection Type: %u\n", (unsigned int) this->connType);
   this->NTP.print();
   if(this->connType == conn_types_t::wifi || this->connType == conn_types_t::unset) this->WIFI.print();
   if(this->connType == conn_types_t::ethernet || this->connType == conn_types_t::ethernetpref) this->Ethernet.print();
@@ -418,10 +419,10 @@ bool NTPSettings::load() {
   return true;
 }
 void NTPSettings::print() {
-  Serial.println("NTP Settings ");
-  Serial.print(this->ntpServer);
-  Serial.print(" TZ:");
-  Serial.println(this->posixZone);  
+  LOG_DLN("NTP Settings ");
+  LOG_D(this->ntpServer);
+  LOG_D(" TZ:");
+  LOG_DLN(this->posixZone);  
 }
 bool NTPSettings::fromJSON(JsonObject &obj) {
   this->parseValueString(obj, "ntpServer", this->ntpServer, sizeof(this->ntpServer));
@@ -515,7 +516,7 @@ bool IPSettings::load() {
     pref.getString("dns2", buff, sizeof(buff));
     this->dns2.fromString(buff);
   }
-  Serial.printf("Preference IP Free Entries: %d\n", pref.freeEntries());
+  LOG_DF("Preference IP Free Entries: %d\n", pref.freeEntries());
   pref.end();
   return true;
 }
@@ -589,16 +590,16 @@ bool SecuritySettings::load() {
   return true;
 }
 void SecuritySettings::print() {
-  Serial.print("SECURITY   Type:");
-  Serial.print(static_cast<uint8_t>(this->type));
-  Serial.print(" Username:[");
-  Serial.print(this->username);
-  Serial.print("] Password:[");
-  Serial.print(strlen(this->password) > 0 ? "set" : "none");
-  Serial.print("] Pin:[");
-  Serial.print(strlen(this->pin) > 0 ? "set" : "none");
-  Serial.print("] Permissions:");
-  Serial.println(this->permissions);
+  LOG_D("SECURITY   Type:");
+  LOG_D(static_cast<uint8_t>(this->type));
+  LOG_D(" Username:[");
+  LOG_D(this->username);
+  LOG_D("] Password:[");
+  LOG_D(strlen(this->password) > 0 ? "set" : "none");
+  LOG_D("] Pin:[");
+  LOG_D(strlen(this->pin) > 0 ? "set" : "none");
+  LOG_D("] Permissions:");
+  LOG_DLN(this->permissions);
 }
 
 WifiSettings::WifiSettings() {}
@@ -668,32 +669,32 @@ String WifiSettings::mapEncryptionType(int type) {
   return "Unknown";
 }
 void WifiSettings::print() {
-  Serial.println("WIFI Settings");
-  Serial.print(" SSID: [");
-  Serial.print(this->ssid);
-  Serial.print("] PassPhrase: [");
-  Serial.print(strlen(this->passphrase) > 0 ? "set" : "none");
-  Serial.println("]");  
+  LOG_ILN("WIFI Settings");
+  LOG_I(" SSID: [");
+  LOG_I(this->ssid);
+  LOG_I("] PassPhrase: [");
+  LOG_I(strlen(this->passphrase) > 0 ? "set" : "none");
+  LOG_ILN("]");  
 }
 void WifiSettings::printNetworks() {
   int n = WiFi.scanNetworks(false, false);
-  Serial.print("Scanned ");
-  Serial.print(n);
-  Serial.println(" Networks...");
+  LOG_D("Scanned ");
+  LOG_D(n);
+  LOG_DLN(" Networks...");
   String network;
   for(int i = 0; i < n; i++) {
-    if(WiFi.SSID(i).compareTo(this->ssid) == 0) Serial.print("*");
-    else Serial.print(" ");
-    Serial.print(i);
-    Serial.print(": ");
-    Serial.print(WiFi.SSID(i));
-    Serial.print(" (");
-    Serial.print(WiFi.RSSI(i));
-    Serial.print("dBm) CH:");
-    Serial.print(WiFi.channel(i));
-    Serial.print(" MAC:");
-    Serial.print(WiFi.BSSIDstr(i));
-    Serial.println();
+    if(WiFi.SSID(i).compareTo(this->ssid) == 0) LOG_I("*");
+    else LOG_I(" ");
+    LOG_I(i);
+    LOG_I(": ");
+    LOG_I(WiFi.SSID(i));
+    LOG_I(" (");
+    LOG_I(WiFi.RSSI(i));
+    LOG_I("dBm) CH:");
+    LOG_I(WiFi.channel(i));
+    LOG_I(" MAC:");
+    LOG_I(WiFi.BSSIDstr(i));
+    LOG_ILN();
   }
 
 }
@@ -774,14 +775,14 @@ bool EthernetSettings::load() {
   return true;
 }
 void EthernetSettings::print() {
-  Serial.println("Ethernet Settings");
-  Serial.printf("Board:%d PHYType:%d CLK:%d ADDR:%d PWR:%d MDC:%d MDIO:%d\n", this->boardType, this->phyType, this->CLKMode, this->phyAddress, this->PWRPin, this->MDCPin, this->MDIOPin);
+  LOG_ILN("Ethernet Settings");
+  LOG_IF("Board:%d PHYType:%d CLK:%d ADDR:%d PWR:%d MDC:%d MDIO:%d\n", this->boardType, this->phyType, this->CLKMode, this->phyAddress, this->PWRPin, this->MDCPin, this->MDIOPin);
 }
 void ConfigSettings::printAvailHeap() {
-  Serial.print("Max Heap: ");
-  Serial.println(ESP.getMaxAllocHeap());
-  Serial.print("Free Heap: ");
-  Serial.println(ESP.getFreeHeap());
-  Serial.print("Min Heap: ");
-  Serial.println(ESP.getMinFreeHeap());
+  LOG_D("Max Heap: ");
+  LOG_DLN(ESP.getMaxAllocHeap());
+  LOG_D("Free Heap: ");
+  LOG_DLN(ESP.getFreeHeap());
+  LOG_D("Min Heap: ");
+  LOG_DLN(ESP.getMinFreeHeap());
 }

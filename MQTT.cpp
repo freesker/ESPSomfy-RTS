@@ -2,6 +2,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
+#include "Log.h"
 #include "ConfigSettings.h"
 #include "MQTT.h"
 #include "Somfy.h"
@@ -45,12 +46,12 @@ bool MQTTClass::loop() {
 }
 void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   esp_task_wdt_reset(); // Make sure we do not reboot here.
-  Serial.print("MQTT Topic:");
-  Serial.print(topic);
-  Serial.print(" payload:");
+  LOG_I("MQTT Topic:");
+  LOG_I(topic);
+  LOG_I(" payload:");
   for(uint32_t i=0; i<length; i++)
-    Serial.print((char)payload[i]);
-  Serial.println();
+    LOG_I((char)payload[i]);
+  LOG_ILN();
 
   // We need to start at the last slash in the data
   uint8_t len = strlen(topic);
@@ -97,14 +98,14 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   for(uint8_t j = 0; j < length && j < sizeof(value); j++)
     value[j] = payload[j];
   
-  Serial.print("MQTT type:[");
-  Serial.print(entityType);
-  Serial.print("] command:[");
-  Serial.print(command);
-  Serial.print("] entityId:");
-  Serial.print(entityId);
-  Serial.print(" value:");
-  Serial.println(value);
+  LOG_I("MQTT type:[");
+  LOG_I(entityType);
+  LOG_I("] command:[");
+  LOG_I(command);
+  LOG_I("] entityId:");
+  LOG_I(entityId);
+  LOG_I(" value:");
+  LOG_ILN(value);
   if(strncmp(entityType, "shades", sizeof(entityType)) == 0) {
     SomfyShade* shade = somfy.getShadeById(atoi(entityId));
     if (shade) {
@@ -204,8 +205,8 @@ bool MQTTClass::connect() {
         snprintf(lwtTopic, sizeof(lwtTopic), "%s/status", settings.MQTT.rootTopic);
       esp_task_wdt_reset();
       if(mqttClient.connect(this->clientId, settings.MQTT.username, settings.MQTT.password, lwtTopic, 0, true, "offline")) {
-        Serial.print("Successfully connected MQTT client ");
-        Serial.println(this->clientId);
+        LOG_I("Successfully connected MQTT client ");
+        LOG_ILN(this->clientId);
         this->publish("status", "online", true);
         this->publish("ipAddress", settings.IP.ip.toString().c_str(), true);
         this->publish("host", settings.hostname, true);
@@ -228,14 +229,14 @@ bool MQTTClass::connect() {
         this->subscribe("groups/+/sunny/set");
         this->subscribe("groups/+/windy/set");
         mqttClient.setCallback(MQTTClass::receive);
-        Serial.println("MQTT Startup Completed");
+        LOG_ILN("MQTT Startup Completed");
         esp_task_wdt_reset();
         this->lastConnect = millis();
         return true;
       }
       else {
-        Serial.print("MQTT Connection failed for: ");
-        Serial.println(mqttClient.state());
+        LOG_E("MQTT Connection failed for: ");
+        LOG_ELN(mqttClient.state());
         this->lastConnect = millis();
         return false;
       }
@@ -273,8 +274,8 @@ bool MQTTClass::unsubscribe(const char *topic) {
       snprintf(top, sizeof(top), "%s/%s", settings.MQTT.rootTopic, topic);
     else
       strlcpy(top, topic, sizeof(top));
-    Serial.print("MQTT Unsubscribed from:");
-    Serial.println(top);
+    LOG_I("MQTT Unsubscribed from:");
+    LOG_ILN(top);
     return mqttClient.unsubscribe(top);
   }
   return true;
@@ -287,8 +288,8 @@ bool MQTTClass::subscribe(const char *topic) {
       snprintf(top, sizeof(top), "%s/%s", settings.MQTT.rootTopic, topic);
     else
       strlcpy(top, topic, sizeof(top));
-    Serial.print("MQTT Subscribed to:");
-    Serial.println(top);
+    LOG_I("MQTT Subscribed to:");
+    LOG_ILN(top);
     return mqttClient.subscribe(top);
   }
   return true;
