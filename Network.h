@@ -19,6 +19,7 @@ class Network {
   public:
     unsigned long lastWifiScan = 0;
     unsigned long apClientSince = 0;
+    uint32_t ethRetryAt = 0;
     bool apClientStuck();
     bool ethStarted = false;
     bool wifiFallback = false;

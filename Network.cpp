@@ -388,6 +388,9 @@ bool Network::connectWired() {
   }
   else
     LOG_ILN("Connecting to Wired Ethernet");
+  // ETH.begin() fuit de la mémoire à chaque appel : après un échec on attend 30 s avant de réessayer
+  // au lieu de le rappeler à chaque itération de loop().
+  if(!this->ethStarted && this->ethRetryAt != 0 && !reached(this->ethRetryAt)) return false;
   this->_connecting = true;
   this->connTarget = conn_types_t::ethernet;
   this->connType = conn_types_t::unset;
@@ -404,6 +407,8 @@ bool Network::connectWired() {
     if(!ETH.begin(settings.Ethernet.phyAddress, settings.Ethernet.PWRPin, settings.Ethernet.MDCPin, settings.Ethernet.MDIOPin, settings.Ethernet.phyType, settings.Ethernet.CLKMode)) { 
       LOG_ELN("Ethernet Begin failed");
       this->ethStarted = false;
+      this->connectStart = millis();
+      this->ethRetryAt = millis() + 30000;
       if(settings.connType == conn_types_t::ethernetpref) {
         this->wifiFallback = true;
         return connectWiFi();
