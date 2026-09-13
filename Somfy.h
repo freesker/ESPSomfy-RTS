@@ -9,6 +9,7 @@
 #define SOMFY_MAX_GROUPED_SHADES 32
 #define SOMFY_MAX_ROOMS 16
 #define SOMFY_MAX_REPEATERS 7
+#define SOMFY_MAX_REPEATS 40 // Une trame dure ~140 ms et l'émission bloque loop() : au-delà, réseau et MQTT décrochent.
 
 #define SECS_TO_MILLIS(x) ((x) * 1000)
 #define MINS_TO_MILLIS(x) SECS_TO_MILLIS((x) * 60)
@@ -285,7 +286,8 @@ class SomfyShade : public SomfyRemote {
     bool settingMyPos = false;
     bool settingPos = false;
     bool settingTiltPos = false;
-    uint32_t awaitMy = 0;
+    uint32_t awaitMy = 0;       // Instant où la position My peut être enregistrée (moteur immobilisé).
+    uint32_t pendingTiltAt = 0; // Instant où reprendre le mouvement de tilt après un arrêt.
   public:
     uint8_t roomId = 0;
     int8_t sortOrder = 0;

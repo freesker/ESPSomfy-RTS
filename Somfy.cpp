@@ -1099,6 +1099,10 @@ void SomfyShade::triggerGPIOs(somfy_frame_t &frame) {
 }
 void SomfyShade::checkMovement() {
   const uint32_t curTime = millis();
+  if(this->pendingTiltAt != 0 && reached(this->pendingTiltAt)) {
+    this->pendingTiltAt = 0;
+    this->moveToTiltTarget(this->tiltTarget);
+  }
   const bool sunFlag = this->flags & static_cast<uint8_t>(somfy_flags_t::SunFlag);
   const bool isSunny = this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny);
   const bool isWindy = this->flags & static_cast<uint8_t>(somfy_flags_t::Windy);
@@ -1215,9 +1219,8 @@ void SomfyShade::checkMovement() {
         if(!isAtTarget()) {
           LOG_DF("We are not at our tilt target: %.2f\n", this->tiltTarget);
           if(this->target != 100.0) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
-          delay(100);
-          // We now need to move the tilt to the position we requested.
-          this->moveToTiltTarget(this->tiltTarget);
+          // Le tilt reprend au tour de boucle suivant, 100 ms plus tard, sans bloquer loop().
+          this->pendingTiltAt = millis() + 100;
         }
         else
           if(this->target != 100.0) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
@@ -1267,9 +1270,7 @@ void SomfyShade::checkMovement() {
         if(!isAtTarget()) {
           LOG_DF("We are not at our tilt target: %.2f\n", this->tiltTarget);
           if(this->target != 0.0) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
-          delay(100);
-          // We now need to move the tilt to the position we requested.
-          this->moveToTiltTarget(this->tiltTarget);
+          this->pendingTiltAt = millis() + 100;
         }
         else
           if(this->target != 0.0) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
@@ -1381,7 +1382,10 @@ void SomfyShade::checkMovement() {
     }
   }
   if(this->settingMyPos && this->isAtTarget()) {
-    delay(200);
+    // Laisser le moteur s'immobiliser 200 ms avant d'enregistrer la position, sans bloquer loop().
+    if(this->awaitMy == 0) this->awaitMy = millis() + 200;
+    if(!reached(this->awaitMy)) return;
+    this->awaitMy = 0;
     // Set this position before sending the command.  If you don't the processFrame function
     // will send the shade back to its original My position.
     if(this->tiltType != tilt_types::none) {
@@ -3318,7 +3322,7 @@ int8_t SomfyShade::fromJSON(JsonObject &obj) {
     }
     if(obj.containsKey("flipCommands")) this->flipCommands = obj["flipCommands"].as<bool>();
     if(obj.containsKey("flipPosition")) this->flipPosition = obj["flipPosition"].as<bool>();
-    if(obj.containsKey("repeats")) this->repeats = obj["repeats"];
+    if(obj.containsKey("repeats")) this->repeats = min(obj["repeats"].as<uint8_t>(), (uint8_t)SOMFY_MAX_REPEATS);
     if(obj.containsKey("tiltType")) {
       if(obj["tiltType"].is<const char *>()) {
         if(strncmp(obj["tiltType"].as<const char *>(), "none", 4) == 0)
@@ -3509,7 +3513,7 @@ bool SomfyGroup::fromJSON(JsonObject &obj) {
   if(obj.containsKey("flipCommands")) this->flipCommands = obj["flipCommands"].as<bool>();
   
   //if(obj.containsKey("sunSensor")) this->hasSunSensor() = obj["sunSensor"];  This is calculated
-  if(obj.containsKey("repeats")) this->repeats = obj["repeats"];
+  if(obj.containsKey("repeats")) this->repeats = min(obj["repeats"].as<uint8_t>(), (uint8_t)SOMFY_MAX_REPEATS);
   // Les volets d'un groupe se lient par /linkToGroup : la clé linkedShades n'est pas prise en compte ici.
   return true;
 }
@@ -3988,6 +3992,7 @@ void SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repe
 }
 void SomfyRemote::sendCommand(somfy_commands cmd) { this->sendCommand(cmd, this->repeats); }
 void SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
+  repeat = min(repeat, (uint8_t)SOMFY_MAX_REPEATS);
   this->lastFrame.rollingCode = this->getNextRollingCode();
   this->lastFrame.remoteAddress = this->getRemoteAddress();
   this->lastFrame.cmd = this->transformCommand(cmd);
@@ -4044,6 +4049,7 @@ bool SomfyRemote::isLastCommand(somfy_commands cmd) {
   return true;
 }
 void SomfyRemote::repeatFrame(uint8_t repeat) {
+  repeat = min(repeat, (uint8_t)SOMFY_MAX_REPEATS);
   if(this->proto == radio_proto::GP_Relay)
     return;
   else if(this->proto == radio_proto::GP_Remote) {
