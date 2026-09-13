@@ -5198,6 +5198,9 @@ void Transceiver::loop() {
 }
 somfy_frame_t& Transceiver::lastFrame() { return this->frame; }
 void Transceiver::beginTransmit() {
+    // Une émission pendant un scan de fréquence laissait la radio calée sur la fréquence de scan :
+    // le scan est terminé proprement (fréquence configurée réappliquée, état émis) avant d'émettre.
+    if(rxmode == 3) this->endFrequencyScan();
     if(this->config.enabled) {
       this->disableReceive();
       pinMode(this->config.TXPin, OUTPUT);
