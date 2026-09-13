@@ -157,9 +157,10 @@ void somfy_frame_t::decodeFrame(byte* frame) {
         this->proto = radio_proto::RTV;
         this->cmd = (somfy_commands)(this->encKey - 148);
       }
-      else if(this->encKey > 133) {
+      else if(this->encKey >= 133) {
+        // Même base que l'encodeur (My = 133) : le décodeur décalait toutes les commandes RTW d'une unité.
         this->proto = radio_proto::RTW;
-        this->cmd = (somfy_commands)(this->encKey - 133);
+        this->cmd = (somfy_commands)(this->encKey - 132);
       }
     }
     else this->proto = radio_proto::RTS;
