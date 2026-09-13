@@ -76,27 +76,25 @@ void Web::handleDeserializationError(WebServer &server, DeserializationError &er
       break;
     }
 }
-bool Web::isAuthenticated(WebServer &server, bool cfg) {
-  Serial.println("Checking authentication");
+static bool constantTimeEquals(const char *a, const char *b) {
+  size_t la = strlen(a), lb = strlen(b);
+  uint8_t diff = (uint8_t)(la != lb);
+  for(size_t i = 0; i < la && i < lb; i++) diff |= (uint8_t)(a[i] ^ b[i]);
+  return diff == 0;
+}
+bool Web::hasValidToken(WebServer &server, bool cfg) {
   if(settings.Security.type == security_types::None) return true;
-  else if(!cfg && (settings.Security.permissions & static_cast<uint8_t>(security_permissions::ConfigOnly)) == 0x01) return true;
-  else if(server.hasHeader("apikey")) {
-    // Api key was supplied.
-    Serial.println("Checking API Key...");
-    char token[65];
-    memset(token, 0x00, sizeof(token));
-    this->createAPIToken(server.client().remoteIP(), token);
-    // Compare the tokens.
-    if(String(token) != server.header("apikey")) return false;
-    server.sendHeader("apikey", token);
-  }
-  else {
-    // Send a 401
-    Serial.println("Not authenticated...");
-    server.send(401, "Unauthorized API Key");
-    return false;
-  }
-  return true;
+  if(!cfg && (settings.Security.permissions & static_cast<uint8_t>(security_permissions::ConfigOnly)) == static_cast<uint8_t>(security_permissions::ConfigOnly)) return true;
+  if(!server.hasHeader("apikey")) return false;
+  char token[65];
+  memset(token, 0x00, sizeof(token));
+  this->createAPIToken(server.client().remoteIP(), token);
+  return constantTimeEquals(token, server.header("apikey").c_str());
+}
+bool Web::isAuthenticated(WebServer &server, bool cfg) {
+  if(this->hasValidToken(server, cfg)) return true;
+  server.send(401, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Unauthorized\"}"));
+  return false;
 }
 bool Web::createAPIPinToken(const IPAddress ipAddress, const char *pin, char *token) {
   return this->createAPIToken((String(pin) + ":" + ipAddress.toString()).c_str(), token);
@@ -106,20 +104,10 @@ bool Web::createAPIPasswordToken(const IPAddress ipAddress, const char *username
 }
 bool Web::createAPIToken(const char *payload, char *token) {
     byte hmacResult[32];
-    mbedtls_md_context_t ctx;
-    mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
-    mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(md_type), 1);
-    mbedtls_md_hmac_starts(&ctx, (const unsigned char *)settings.serverId, strlen(settings.serverId));
-    mbedtls_md_hmac_update(&ctx, (const unsigned char *)payload, strlen(payload)); 
-    mbedtls_md_hmac_finish(&ctx, hmacResult);
-    Serial.print("Hash: ");
+    const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
     token[0] = '\0';
-    for(int i = 0; i < sizeof(hmacResult); i++){
-        char str[3];
-        sprintf(str, "%02x", (int)hmacResult[i]);
-        strcat(token, str);
-    }
-    Serial.println(token);
+    if(mbedtls_md_hmac(info, (const unsigned char *)settings.serverId, strlen(settings.serverId), (const unsigned char *)payload, strlen(payload), hmacResult) != 0) return false;
+    for(size_t i = 0; i < sizeof(hmacResult); i++) snprintf(&token[i * 2], 3, "%02x", hmacResult[i]);
     return true;
 }
 bool Web::createAPIToken(const IPAddress ipAddress, char *token) {
@@ -232,6 +220,7 @@ void Web::handleStreamFile(WebServer &server, const char *filename, const char *
   esp_task_wdt_reset();
 }
 void Web::handleController(WebServer &server) {
+  if(!this->isAuthenticated(server, false)) return;
   webServer.sendCORSHeaders(server);
   if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
@@ -285,6 +274,7 @@ void Web::handleLoginContext(WebServer &server) {
     resp.endResponse();
 }
 void Web::handleGetRepeaters(WebServer &server) {
+  if(!this->isAuthenticated(server, false)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -299,6 +289,7 @@ void Web::handleGetRepeaters(WebServer &server) {
     else server.send(404, _encoding_text, _response_404);
 }
 void Web::handleGetRooms(WebServer &server) {
+  if(!this->isAuthenticated(server, false)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -313,6 +304,7 @@ void Web::handleGetRooms(WebServer &server) {
     else server.send(404, _encoding_text, _response_404);
 }
 void Web::handleGetShades(WebServer &server) {
+  if(!this->isAuthenticated(server, false)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -327,6 +319,7 @@ void Web::handleGetShades(WebServer &server) {
     else server.send(404, _encoding_text, _response_404);
 }
 void Web::handleGetGroups(WebServer &server) {
+  if(!this->isAuthenticated(server, false)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -341,6 +334,7 @@ void Web::handleGetGroups(WebServer &server) {
     else server.send(404, _encoding_text, _response_404);
 }
 void Web::handleShadeCommand(WebServer& server) {
+  if(!this->isAuthenticated(server, false)) return;
   webServer.sendCORSHeaders(server);
   if (server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
@@ -405,6 +399,7 @@ void Web::handleShadeCommand(WebServer& server) {
     server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
 }
 void Web::handleRepeatCommand(WebServer& server) {
+  if(!this->isAuthenticated(server, false)) return;
   webServer.sendCORSHeaders(server);
   HTTPMethod method = server.method();
   if (method == HTTP_OPTIONS) { server.send(200, "OK"); return; }
@@ -490,6 +485,7 @@ void Web::handleRepeatCommand(WebServer& server) {
   }
 }
 void Web::handleGroupCommand(WebServer &server) {
+  if(!this->isAuthenticated(server, false)) return;
   webServer.sendCORSHeaders(server);
   if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
@@ -549,6 +545,7 @@ void Web::handleGroupCommand(WebServer &server) {
     server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
 }
 void Web::handleTiltCommand(WebServer &server) {
+  if(!this->isAuthenticated(server, false)) return;
   webServer.sendCORSHeaders(server);
   if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
@@ -607,6 +604,7 @@ void Web::handleTiltCommand(WebServer &server) {
     server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
 }
 void Web::handleRoom(WebServer &server) {
+  if(!this->isAuthenticated(server, server.method() != HTTP_GET)) return;
   webServer.sendCORSHeaders(server);
   if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
@@ -669,6 +667,7 @@ void Web::handleRoom(WebServer &server) {
     server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
 }
 void Web::handleShade(WebServer &server) {
+  if(!this->isAuthenticated(server, server.method() != HTTP_GET)) return;
   webServer.sendCORSHeaders(server);
   if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
@@ -731,6 +730,7 @@ void Web::handleShade(WebServer &server) {
     server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
 }
 void Web::handleGroup(WebServer &server) {
+  if(!this->isAuthenticated(server, server.method() != HTTP_GET)) return;
   webServer.sendCORSHeaders(server);
   if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
@@ -830,6 +830,7 @@ void Web::handleDiscovery(WebServer &server) {
     server.send(500, _encoding_text, "Invalid http method");
 }
 void Web::handleBackup(WebServer &server, bool attach) {
+  if(!this->isAuthenticated(server, true)) return;
   webServer.sendCORSHeaders(server);
   if(server.hasArg("attach")) attach = toBoolean(server.arg("attach").c_str(), attach);
   if(attach) {
@@ -865,6 +866,7 @@ void Web::handleBackup(WebServer &server, bool attach) {
   file.close();
 }
 void Web::handleSetPositions(WebServer &server) {
+  if(!this->isAuthenticated(server, false)) return;
   webServer.sendCORSHeaders(server);
   if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   uint8_t shadeId = (server.hasArg("shadeId")) ? atoi(server.arg("shadeId").c_str()) : 255;
@@ -905,6 +907,7 @@ void Web::handleSetPositions(WebServer &server) {
   }
 }
 void Web::handleSetSensor(WebServer &server) {
+  if(!this->isAuthenticated(server, false)) return;
   webServer.sendCORSHeaders(server);
   if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   uint8_t shadeId = (server.hasArg("shadeId")) ? atoi(server.arg("shadeId").c_str()) : 255;
@@ -974,6 +977,7 @@ void Web::handleSetSensor(WebServer &server) {
   }
 }
 void Web::handleDownloadFirmware(WebServer &server) {
+  if(!this->isAuthenticated(server, true)) return;
   webServer.sendCORSHeaders(server);
   if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   GitRepo repo;
@@ -1042,6 +1046,7 @@ void Web::handleNotFound(WebServer &server) {
     server.send(404, _encoding_text, g_content);
 }
 void Web::handleReboot(WebServer &server) {
+  if(!this->isAuthenticated(server, true)) return;
   webServer.sendCORSHeaders(server);
   if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
@@ -1097,6 +1102,7 @@ void Web::begin() {
   server.on("/shades.cfg", []() { webServer.handleStreamFile(server, "/shades.cfg", _encoding_text); });
   server.on("/shades.tmp", []() { webServer.handleStreamFile(server, "/shades.tmp", _encoding_text); });
   server.on("/getReleases", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     GitRepo repo;
@@ -1111,6 +1117,7 @@ void Web::begin() {
   });
   server.on("/downloadFirmware", []() { webServer.handleDownloadFirmware(server); });
   server.on("/cancelFirmware", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     // If we are currently downloading the filesystem we cannot cancel.
@@ -1130,6 +1137,7 @@ void Web::begin() {
   });
   server.on("/backup", []() { webServer.handleBackup(server, true); });
   server.on("/restore", HTTP_POST, []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     server.sendHeader("Connection", "close");
     if(webServer.uploadSuccess) {
@@ -1160,7 +1168,10 @@ void Web::begin() {
     }, []() {
       esp_task_wdt_reset();
       HTTPUpload& upload = server.upload();
+      if(upload.status != UPLOAD_FILE_START && !webServer.uploadAuthorized) return;
       if (upload.status == UPLOAD_FILE_START) {
+        webServer.uploadAuthorized = webServer.hasValidToken(server, true);
+        if(!webServer.uploadAuthorized) return;
         webServer.uploadSuccess = false;
         Serial.printf("Restore: %s\n", upload.filename.c_str());
         // Begin by opening a new temporary file.
@@ -1196,6 +1207,7 @@ void Web::begin() {
   server.on("/shade", []() { webServer.handleShade(server); });
   server.on("/group", []() { webServer.handleGroup(server); });
   server.on("/getNextRoom", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     JsonResponse resp;
@@ -1206,6 +1218,7 @@ void Web::begin() {
     resp.endResponse();
   });
   server.on("/getNextShade", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     uint8_t shadeId = somfy.getNextShadeId();
@@ -1221,6 +1234,7 @@ void Web::begin() {
     resp.endResponse();
     });
   server.on("/getNextGroup", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     uint8_t groupId = somfy.getNextGroupId();
     JsonResponse resp;
@@ -1234,6 +1248,7 @@ void Web::begin() {
     resp.endResponse();
     });
   server.on("/addRoom", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     SomfyRoom * room = nullptr;
@@ -1275,6 +1290,7 @@ void Web::begin() {
     }
     });
   server.on("/addShade", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     SomfyShade* shade = nullptr;
@@ -1317,6 +1333,7 @@ void Web::begin() {
     }
     });
   server.on("/addGroup", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     SomfyGroup * group = nullptr;
@@ -1358,6 +1375,7 @@ void Web::begin() {
     }
     });
   server.on("/groupOptions", []() {
+    if(!webServer.isAuthenticated(server, false)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1401,6 +1419,7 @@ void Web::begin() {
     
     });
   server.on("/saveRoom", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1438,6 +1457,8 @@ void Web::begin() {
   });
 
   server.on("/saveShade", []() {
+
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1480,6 +1501,7 @@ void Web::begin() {
     }
   });
   server.on("/saveGroup", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1516,6 +1538,7 @@ void Web::begin() {
     }
     });
   server.on("/setMyPosition", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1566,6 +1589,7 @@ void Web::begin() {
       server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
     });
   server.on("/setRollingCode", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1607,6 +1631,7 @@ void Web::begin() {
     }
   });
   server.on("/setPaired", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     uint8_t shadeId = 255;
@@ -1645,6 +1670,7 @@ void Web::begin() {
     }
   });
   server.on("/unpairShade", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1687,6 +1713,7 @@ void Web::begin() {
     }
     });
   server.on("/linkRepeater", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1723,6 +1750,7 @@ void Web::begin() {
     }
   });
   server.on("/unlinkRepeater", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1760,6 +1788,8 @@ void Web::begin() {
   });
   
   server.on("/unlinkRemote", []() {
+  
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1799,6 +1829,7 @@ void Web::begin() {
     }
     });
   server.on("/linkRemote", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1840,6 +1871,7 @@ void Web::begin() {
     }
     });
   server.on("/linkToGroup", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1887,6 +1919,7 @@ void Web::begin() {
     }
   });
   server.on("/unlinkFromGroup", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1943,6 +1976,7 @@ void Web::begin() {
     }
   });
   server.on("/deleteRoom", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -1975,6 +2009,7 @@ void Web::begin() {
     }
     });
   server.on("/deleteShade", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -2010,6 +2045,7 @@ void Web::begin() {
     }
     });
   server.on("/deleteGroup", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -2042,6 +2078,7 @@ void Web::begin() {
     }
     });
   server.on("/updateFirmware", HTTP_POST, []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     if (Update.hasError())
@@ -2052,7 +2089,10 @@ void Web::begin() {
     rebootDelay.rebootTime = millis() + 500;
     }, []() {
       HTTPUpload& upload = server.upload();
+      if(upload.status != UPLOAD_FILE_START && !webServer.uploadAuthorized) return;
       if (upload.status == UPLOAD_FILE_START) {
+        webServer.uploadAuthorized = webServer.hasValidToken(server, true);
+        if(!webServer.uploadAuthorized) return;
         webServer.uploadSuccess = false;
         Serial.printf("Update: %s - %d\n", upload.filename.c_str(), upload.totalSize);
         //if(!Update.begin(upload.totalSize, U_SPIFFS)) {
@@ -2088,6 +2128,7 @@ void Web::begin() {
       esp_task_wdt_reset();
     });
   server.on("/updateShadeConfig", HTTP_POST, []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     if(git.lockFS) {
       server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Filesystem update in progress\"}"));
       return;
@@ -2098,7 +2139,10 @@ void Web::begin() {
     server.send(200, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Updating Shade Config: \"}");
     }, []() {
       HTTPUpload& upload = server.upload();
+      if(upload.status != UPLOAD_FILE_START && !webServer.uploadAuthorized) return;
       if (upload.status == UPLOAD_FILE_START) {
+        webServer.uploadAuthorized = webServer.hasValidToken(server, true);
+        if(!webServer.uploadAuthorized) return;
         Serial.printf("Update: shades.cfg\n");
         File fup = LittleFS.open("/shades.tmp", "w");
         fup.close();
@@ -2116,6 +2160,7 @@ void Web::begin() {
       }
     });
   server.on("/updateApplication", HTTP_POST, []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     server.sendHeader("Connection", "close");
@@ -2127,7 +2172,10 @@ void Web::begin() {
     rebootDelay.rebootTime = millis() + 500;
     }, []() {
       HTTPUpload& upload = server.upload();
+      if(upload.status != UPLOAD_FILE_START && !webServer.uploadAuthorized) return;
       if (upload.status == UPLOAD_FILE_START) {
+        webServer.uploadAuthorized = webServer.hasValidToken(server, true);
+        if(!webServer.uploadAuthorized) return;
         webServer.uploadSuccess = false;
         Serial.printf("Update: %s %d\n", upload.filename.c_str(), upload.totalSize);
         //if(!Update.begin(upload.totalSize, U_SPIFFS)) {
@@ -2166,6 +2214,7 @@ void Web::begin() {
       esp_task_wdt_reset();
     });
   server.on("/scanaps", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     esp_task_wdt_reset();
     
@@ -2204,6 +2253,7 @@ void Web::begin() {
     });
   server.on("/reboot", []() { webServer.handleReboot(server);});
   server.on("/saveSecurity", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
@@ -2235,6 +2285,7 @@ void Web::begin() {
     }
     });
   server.on("/getSecurity", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     DynamicJsonDocument doc(512);
     JsonObject obj = doc.to<JsonObject>();
@@ -2243,6 +2294,7 @@ void Web::begin() {
     server.send(200, _encoding_json, g_content);
     });
   server.on("/saveRadio", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
@@ -2272,6 +2324,7 @@ void Web::begin() {
     }
     });
   server.on("/getRadio", []() {
+    if(!webServer.isAuthenticated(server, false)) return;
     webServer.sendCORSHeaders(server);
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
@@ -2281,6 +2334,7 @@ void Web::begin() {
     resp.endResponse();
     });
   server.on("/sendRemoteCommand", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
@@ -2321,6 +2375,7 @@ void Web::begin() {
     }
     });
   server.on("/setgeneral", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
@@ -2357,6 +2412,7 @@ void Web::begin() {
     }
     });
   server.on("/setNetwork", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(1024);
@@ -2413,6 +2469,7 @@ void Web::begin() {
     }
   });
   server.on("/setIP", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     Serial.println("Setting IP...");
@@ -2436,6 +2493,7 @@ void Web::begin() {
     }
   });
   server.on("/connectwifi", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     Serial.println("Settings WIFI connection...");
@@ -2480,6 +2538,7 @@ void Web::begin() {
     }
     });
   server.on("/modulesettings", []() {
+    if(!webServer.isAuthenticated(server, false)) return;
     webServer.sendCORSHeaders(server);
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
@@ -2502,6 +2561,7 @@ void Web::begin() {
     */
     });
   server.on("/networksettings", []() {
+    if(!webServer.isAuthenticated(server, false)) return;
     webServer.sendCORSHeaders(server);
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
@@ -2536,6 +2596,7 @@ void Web::begin() {
     */
     });
   server.on("/connectmqtt", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(1024);
     DeserializationError err = deserializeJson(doc, server.arg("plain"));
@@ -2573,6 +2634,7 @@ void Web::begin() {
     }
     });
   server.on("/mqttsettings", []() {
+    if(!webServer.isAuthenticated(server, false)) return;
     webServer.sendCORSHeaders(server);
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
@@ -2590,6 +2652,7 @@ void Web::begin() {
     */
     });
   server.on("/roomSortOrder", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
     Serial.print("Plain: ");
@@ -2621,6 +2684,7 @@ void Web::begin() {
     }
   });
   server.on("/shadeSortOrder", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
     Serial.print("Plain: ");
@@ -2652,6 +2716,7 @@ void Web::begin() {
     }
   });
   server.on("/groupSortOrder", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
     Serial.print("Plain: ");
@@ -2683,6 +2748,7 @@ void Web::begin() {
     }
   });  
   server.on("/beginFrequencyScan", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     somfy.transceiver.beginFrequencyScan();
     JsonResponse resp;
@@ -2700,6 +2766,7 @@ void Web::begin() {
     */
   });
   server.on("/endFrequencyScan", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     somfy.transceiver.endFrequencyScan();
     JsonResponse resp;
@@ -2716,7 +2783,8 @@ void Web::begin() {
     server.send(200, _encoding_json, g_content);
     */
   });
-  server.on("/recoverFilesystem", [] () {
+  server.on("/recoverFilesystem", []() {
+    if(!webServer.isAuthenticated(server, true)) return;
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     webServer.sendCORSHeaders(server);
     if(git.status == GIT_UPDATING)

@@ -5,6 +5,7 @@
 class Web {
   public:
     bool uploadSuccess = false;
+    bool uploadAuthorized = false;
     void sendCORSHeaders(WebServer &server);
     void sendCacheHeaders(uint32_t seconds=604800);
     void startup();
@@ -41,6 +42,7 @@ class Web {
     bool createAPIPinToken(const IPAddress ipAddress, const char *pin, char *token);
     bool createAPIPasswordToken(const IPAddress ipAddress, const char *username, const char *password, char *token);
     bool isAuthenticated(WebServer &server, bool cfg = false);
+    bool hasValidToken(WebServer &server, bool cfg = false);
 
     //void chunkRoomsResponse(WebServer &server, const char *elem = nullptr);
     //void chunkShadesResponse(WebServer &server, const char *elem = nullptr);
