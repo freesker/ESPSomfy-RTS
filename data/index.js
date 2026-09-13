@@ -249,6 +249,23 @@ var httpStatusText = {
     '504': 'Gateway Timeout',
     '505': 'HTTP Version Not Supported'
 };
+// Un 401 signifie que le jeton n'est plus valide (nouveau PIN, redémarrage) : ramener l'écran de connexion.
+function handleUnauthorized(status) {
+    if (status === 401 && security.type !== 0 && document.getElementById('divUnauthenticated').style.display === 'none') {
+        security.authenticated = false;
+        security.apiKey = '';
+        security.authUser();
+    }
+}
+// Variante « promesse » de getJSONSync pour enchaîner les chargements avec await.
+function getJSONAsync(url, cb) {
+    return new Promise((resolve) => {
+        getJSONSync(url, (err, obj) => {
+            try { cb(err, obj); }
+            finally { resolve(); }
+        });
+    });
+}
 function getJSON(url, cb) {
     let xhr = new XMLHttpRequest();
     console.log({ get: url });
@@ -262,7 +279,8 @@ function getJSON(url, cb) {
             err.htmlError = status;
             err.service = `GET ${url}`;
             if (typeof err.desc === 'undefined') err.desc = xhr.statusText || httpStatusText[xhr.status || 500];
-            cb(xhr.response, null);
+            handleUnauthorized(status);
+            cb(err, null);
         }
         else {
             cb(null, xhr.response);
@@ -289,10 +307,10 @@ function getJSONSync(url, cb) {
             err.htmlError = status;
             err.service = `GET ${url}`;
             if (typeof err.desc === 'undefined') err.desc = xhr.statusText || httpStatusText[xhr.status || 500];
-            cb(xhr.response, null);
+            handleUnauthorized(status);
+            cb(err, null);
         }
         else {
-            console.log({ get: url, obj:xhr.response });
             cb(null, xhr.response);
         }
         if (typeof overlay !== 'undefined') overlay.remove();
@@ -1420,9 +1438,9 @@ class General {
     { city: 'Pacific/Midway',  code: 'SST11' },
     { city: 'Pacific/Norfolk', code: '<+11>-11<+12>,M10.1.0,M4.1.0/3' }
     ];
-    loadGeneral() {
+    async loadGeneral() {
         let pnl = document.getElementById('divSystemOptions');
-        getJSONSync('/modulesettings', (err, settings) => {
+        await getJSONAsync('/modulesettings', (err, settings) => {
             if (err) {
                 console.log(err);
             }
@@ -1675,9 +1693,9 @@ class Wifi {
         }
     }
     onDHCPClicked(cb) { document.getElementById('divStaticIP').style.display = cb.checked ? 'none' : ''; }
-    loadNetwork() {
+    async loadNetwork() {
         let pnl = document.getElementById('divNetAdapter');
-        getJSONSync('/networksettings', (err, settings) => {
+        await getJSONAsync('/networksettings', (err, settings) => {
             if (err) {
                 ui.serviceError(err);
             }
@@ -1970,7 +1988,7 @@ class Somfy {
         this.loadPins('out', document.getElementById('selShadeGPIOMy'));
     }
     async loadSomfy() {
-        getJSONSync('/controller', (err, somfy) => {
+        await getJSONAsync('/controller', (err, somfy) => {
             if (err) {
                 console.log(err);
                 ui.serviceError(err);
@@ -4233,7 +4251,7 @@ class MQTT {
     initialized = false;
     init() { this.initialized = true; }
     async loadMQTT() {
-        getJSONSync('/mqttsettings', (err, settings) => {
+        await getJSONAsync('/mqttsettings', (err, settings) => {
             if (err) 
                 console.log(err);
             else {
