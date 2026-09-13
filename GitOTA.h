@@ -23,10 +23,11 @@ class GitRelease {
     bool main = false;
     bool hasFS = false;
     char hwVersions[128] = "";
+    char fwDigest[65] = ""; // SHA-256 publié par GitHub pour le firmware de cette puce
+    char fsDigest[65] = ""; // SHA-256 publié pour l'image LittleFS
     time_t releaseDate;
     char name[32] = "";   
     appver_t version;
-    void setReleaseProperty(const char *key, const char *val);
     void setAssetProperty(const char *key, const char *val);
     void toJSON(JsonResponse &json);
 };
@@ -45,6 +46,11 @@ class GitUpdater {
     bool updateAvailable = false;
     bool inetAvailable = false;
     appver_t latest;
+    char targetFwDigest[65] = "";
+    char targetFsDigest[65] = "";
+    char expectedDigest[65] = "";
+    static const char *firmwareFileName();
+    bool findReleaseDigests(const char *name, char *fwDigest, char *fsDigest);
     bool cancelled = false;
     int16_t error = 0;
     char targetRelease[32];
@@ -53,8 +59,7 @@ class GitUpdater {
     int partition = 0;
     void checkForUpdate();
     bool beginUpdate(const char *release);
-    bool endUpdate();
-    int8_t downloadFile();
+    int16_t downloadFile();
     void setFirmwareFile();
     void setCurrentRelease(GitRepo &repo);
     void loop();

@@ -1052,43 +1052,52 @@ void Web::handleDownloadFirmware(WebServer &server) {
   if(!this->isAuthenticated(server, true)) return;
   webServer.sendCORSHeaders(server);
   if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
-  GitRepo repo;
+  if(git.status != GIT_STATUS_READY) {
+    server.send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An update is already in progress\"}"));
+    return;
+  }
+  if(!server.hasArg("ver")) {
+    server.send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Release version not supplied.\"}"));
+    return;
+  }
+  GitRepo *repo = new GitRepo();
+  if(!repo) {
+    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Out of memory\"}"));
+    return;
+  }
+  int16_t err = repo->getReleases();
+  if(err != 0) {
+    delete repo;
+    snprintf(g_content, sizeof(g_content), "{\"status\":\"ERROR\",\"desc\":\"Error communicating with Github\",\"error\":%d}", err);
+    server.send(502, _encoding_json, g_content);
+    return;
+  }
   GitRelease *rel = nullptr;
-  int8_t err = repo.getReleases();
-  LOG_DLN("downloadFirmware called...");
-  if(err == 0) {
-    if(server.hasArg("ver")) {
-      if(strcmp(server.arg("ver").c_str(), "latest") == 0) rel = &repo.releases[0];
-      else if(strcmp(server.arg("ver").c_str(), "main") == 0) {
-        rel = &repo.releases[GIT_MAX_RELEASES];
-      }
-      else {
-        for(uint8_t i = 0; i < GIT_MAX_RELEASES; i++) {
-          if(repo.releases[i].id == 0) continue;
-          if(strcmp(repo.releases[i].name, server.arg("ver").c_str()) == 0) {
-            rel = &repo.releases[i];  
-          }
-        }
-      }
-      if(rel) {
-        JsonResponse resp;
-        resp.beginResponse(&server, g_content, sizeof(g_content));
-        resp.beginObject();
-        rel->toJSON(resp);
-        resp.endObject();
-        resp.endResponse();
-        strcpy(git.targetRelease, rel->name);
-        git.status = GIT_AWAITING_UPDATE;
-      }
-      else
-        server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Release not found in repo.\"}"));
-    }
-    else
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Release version not supplied.\"}"));
-  }
+  const char *ver = server.arg("ver").c_str();
+  if(strcmp(ver, "latest") == 0) rel = &repo->releases[0];
+  else if(strcmp(ver, "main") == 0) rel = &repo->releases[GIT_MAX_RELEASES];
   else {
-      server.send(err, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error communicating with Github.\"}"));
+    for(uint8_t i = 0; i < GIT_MAX_RELEASES; i++) {
+      if(repo->releases[i].id == 0) continue;
+      if(strcmp(repo->releases[i].name, ver) == 0) rel = &repo->releases[i];
+    }
   }
+  if(!rel || rel->id == 0) {
+    delete repo;
+    server.send(404, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Release not found in repo.\"}"));
+    return;
+  }
+  JsonResponse resp;
+  resp.beginResponse(&server, g_content, sizeof(g_content));
+  resp.beginObject();
+  rel->toJSON(resp);
+  resp.endObject();
+  resp.endResponse();
+  strlcpy(git.targetRelease, rel->name, sizeof(git.targetRelease));
+  strlcpy(git.targetFwDigest, rel->fwDigest, sizeof(git.targetFwDigest));
+  strlcpy(git.targetFsDigest, rel->fsDigest, sizeof(git.targetFsDigest));
+  git.status = GIT_AWAITING_UPDATE;
+  delete repo;
 }
 void Web::handleNotFound(WebServer &server) {
     HTTPMethod method = server.method();
@@ -1175,15 +1184,26 @@ void Web::begin() {
     if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
-    GitRepo repo;
-    repo.getReleases();
-    git.setCurrentRelease(repo);
+    GitRepo *repo = new GitRepo();
+    if(!repo) {
+      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Out of memory\"}"));
+      return;
+    }
+    int16_t err = repo->getReleases();
+    if(err != 0) {
+      delete repo;
+      snprintf(g_content, sizeof(g_content), "{\"status\":\"ERROR\",\"desc\":\"Error communicating with Github\",\"error\":%d}", err);
+      server.send(502, _encoding_json, g_content);
+      return;
+    }
+    git.setCurrentRelease(*repo);
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
     resp.beginObject();
-    repo.toJSON(resp);
+    repo->toJSON(resp);
     resp.endObject();
     resp.endResponse();
+    delete repo;
   });
   server.on("/downloadFirmware", []() { webServer.handleDownloadFirmware(server); });
   server.on("/cancelFirmware", []() {
