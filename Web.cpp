@@ -82,7 +82,19 @@ static bool constantTimeEquals(const char *a, const char *b) {
   for(size_t i = 0; i < la && i < lb; i++) diff |= (uint8_t)(a[i] ^ b[i]);
   return diff == 0;
 }
+// Une requête émise par un navigateur porte un en-tête Origin : il doit désigner l'hôte de
+// l'appareil, sinon il s'agit d'une page tierce qui tente de piloter le boîtier (CSRF).
+bool Web::isOriginAllowed(WebServer &server) {
+  if(!server.hasHeader("Origin")) return true;
+  String origin = server.header("Origin");
+  int ndx = origin.indexOf("://");
+  if(ndx < 0) return false;
+  origin = origin.substring(ndx + 3);
+  String host = server.hostHeader();
+  return origin.length() > 0 && origin.equalsIgnoreCase(host);
+}
 bool Web::hasValidToken(WebServer &server, bool cfg) {
+  if(!this->isOriginAllowed(server)) return false;
   if(settings.Security.type == security_types::None) return true;
   if(!cfg && (settings.Security.permissions & static_cast<uint8_t>(security_permissions::ConfigOnly)) == static_cast<uint8_t>(security_permissions::ConfigOnly)) return true;
   if(!server.hasHeader("apikey")) return false;
@@ -1060,12 +1072,12 @@ void Web::handleReboot(WebServer &server) {
 }
 void Web::begin() {
   Serial.println("Creating Web MicroServices...");
-  server.enableCORS(true);
-  const char *keys[1] = {"apikey"};
-  server.collectHeaders(keys, 1);
+  // Pas de CORS : l'interface est servie par l'appareil lui-même et l'en-tête Origin des
+  // requêtes de navigateur doit correspondre à l'hôte contacté (protection CSRF).
+  const char *keys[2] = {"apikey", "Origin"};
+  server.collectHeaders(keys, 2);
   // API Server Handlers
-  apiServer.collectHeaders(keys, 1);  
-  apiServer.enableCORS(true);
+  apiServer.collectHeaders(keys, 2);
   apiServer.on("/discovery", []() { webServer.handleDiscovery(apiServer); });
   apiServer.on("/rooms", []() {webServer.handleGetRooms(apiServer); });
   apiServer.on("/shades", []() { webServer.handleGetShades(apiServer); });
