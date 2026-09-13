@@ -171,10 +171,11 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
           group->sendCommand(somfy_commands::My);
       }
       else if(strncmp(command, "sunFlag", sizeof(command)) == 0) {
+        // Même sens que pour les volets : 1 active le mode soleil (SunFlag), 0 le désactive (Flag).
         if(val > 0)
-          group->sendCommand(somfy_commands::Flag);
-        else
           group->sendCommand(somfy_commands::SunFlag);
+        else
+          group->sendCommand(somfy_commands::Flag);
       }
       else if(strncmp(command, "sunny", sizeof(command)) == 0) {
         if(val >= 0) group->sendSensorCommand(-1, val, group->repeats);
@@ -186,6 +187,13 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   }
   esp_task_wdt_reset(); // Make sure we do not reboot here.
 }
+// Topics de commande souscrits : une seule liste pour subscribe et unsubscribe.
+static const char *const kCommandTopics[] = {
+  "shades/+/target/set", "shades/+/tiltTarget/set", "shades/+/direction/set", "shades/+/mypos/set",
+  "shades/+/myTiltPos/set", "shades/+/sunFlag/set", "shades/+/sunny/set", "shades/+/windy/set",
+  "shades/+/position/set", "shades/+/tiltPosition/set",
+  "groups/+/direction/set", "groups/+/sunFlag/set", "groups/+/sunny/set", "groups/+/windy/set"
+};
 bool MQTTClass::connect() {
   esp_task_wdt_reset(); // Make sure we do not reboot here.
   if(mqttClient.connected()) {
@@ -195,11 +203,14 @@ bool MQTTClass::connect() {
       return true;
   }
   if(settings.MQTT.enabled && !this->suspended) {
-    if(!elapsed(this->lastConnect, 10000)) return false;
+    // Reconnexion avec délai croissant (10 s puis doublé jusqu'à 5 min) : un broker absent ne doit pas
+    // geler loop() toutes les 10 s le temps d'une résolution DNS et d'un connect() bloquant.
+    if(!elapsed(this->lastConnect, this->reconnectDelay)) return false;
     uint64_t mac = ESP.getEfuseMac();
     snprintf(this->clientId, sizeof(this->clientId), "client-%08x%08x", (uint32_t)((mac >> 32) & 0xFFFFFFFF), (uint32_t)(mac & 0xFFFFFFFF));
     if(strlen(settings.MQTT.protocol) > 0 && strlen(settings.MQTT.hostname) > 0) {
       mqttClient.setServer(settings.MQTT.hostname, settings.MQTT.port);
+      mqttClient.setSocketTimeout(MQTT_SOCKET_TIMEOUT_S);
       char lwtTopic[128] = "status";
       if(strlen(settings.MQTT.rootTopic) > 0)
         snprintf(lwtTopic, sizeof(lwtTopic), "%s/status", settings.MQTT.rootTopic);
@@ -214,30 +225,19 @@ bool MQTTClass::connect() {
         this->publish("serverId", settings.serverId, true);
         this->publish("mac", net.mac.c_str());
         somfy.publish();
-        this->subscribe("shades/+/target/set");
-        this->subscribe("shades/+/tiltTarget/set");
-        this->subscribe("shades/+/direction/set");
-        this->subscribe("shades/+/mypos/set");
-        this->subscribe("shades/+/myTiltPos/set");
-        this->subscribe("shades/+/sunFlag/set");
-        this->subscribe("shades/+/sunny/set");
-        this->subscribe("shades/+/windy/set");
-        this->subscribe("shades/+/position/set");
-        this->subscribe("shades/+/tiltPosition/set");
-        this->subscribe("groups/+/direction/set");
-        this->subscribe("groups/+/sunFlag/set");
-        this->subscribe("groups/+/sunny/set");
-        this->subscribe("groups/+/windy/set");
         mqttClient.setCallback(MQTTClass::receive);
+        for(const char *topic : kCommandTopics) this->subscribe(topic);
         LOG_ILN("MQTT Startup Completed");
         esp_task_wdt_reset();
         this->lastConnect = millis();
+        this->reconnectDelay = MQTT_RECONNECT_MIN_MS;
         return true;
       }
       else {
         LOG_E("MQTT Connection failed for: ");
         LOG_ELN(mqttClient.state());
         this->lastConnect = millis();
+        this->reconnectDelay = min(this->reconnectDelay * 2, (uint32_t)MQTT_RECONNECT_MAX_MS);
         return false;
       }
     }
@@ -248,21 +248,7 @@ bool MQTTClass::connect() {
 }
 bool MQTTClass::disconnect() {
   if(mqttClient.connected()) {
-    this->unsubscribe("shades/+/target/set");
-    this->unsubscribe("shades/+/direction/set");
-    this->unsubscribe("shades/+/tiltTarget/set");
-    this->unsubscribe("shades/+/mypos/set");
-    this->unsubscribe("shades/+/myTiltPos/set");
-    this->unsubscribe("shades/+/sunFlag/set");
-    this->unsubscribe("groups/+/direction/set");
-    this->unsubscribe("shades/+/sunny/set");
-    this->unsubscribe("shades/+/windy/set");
-    this->unsubscribe("shades/+/position/set");
-    this->unsubscribe("shades/+/tiltPosition/set");
-    this->unsubscribe("groups/+/direction/set");
-    this->unsubscribe("groups/+/sunFlag/set");
-    this->unsubscribe("groups/+/sunny/set");
-    this->unsubscribe("groups/+/windy/set");
+    for(const char *topic : kCommandTopics) this->unsubscribe(topic);
     mqttClient.disconnect();
   }
   return true;

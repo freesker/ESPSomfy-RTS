@@ -1499,7 +1499,7 @@ void SomfyShade::publishState() {
     this->publish("position", this->transformPosition(this->currentPos), true);
     this->publish("direction", this->direction, true);
     this->publish("target", this->transformPosition(this->target), true);
-    this->publish("lastRollingCode", this->lastRollingCode);
+    this->publish("lastRollingCode", this->lastRollingCode, true);
     this->publish("mypos", this->transformPosition(this->myPos), true);
     this->publish("myTiltPos", this->transformPosition(this->myTiltPos), true);
     if(this->tiltType != tilt_types::none) {
@@ -1511,10 +1511,10 @@ void SomfyShade::publishState() {
     const uint8_t isSunny = !!(this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny));
     const uint8_t isWindy = !!(this->flags & static_cast<uint8_t>(somfy_flags_t::Windy));
     if(this->hasSunSensor()) {
-      this->publish("sunFlag", sunFlag);
-      this->publish("sunny", isSunny);
+      this->publish("sunFlag", sunFlag, true);
+      this->publish("sunny", isSunny, true);
     }
-    this->publish("windy", isWindy);
+    this->publish("windy", isWindy, true);
   }
 }
 void SomfyShade::publishDisco() {
@@ -1677,9 +1677,9 @@ void SomfyGroup::publishState() {
     const uint8_t sunFlag = !!(this->flags & static_cast<uint8_t>(somfy_flags_t::SunFlag));
     const uint8_t isSunny = !!(this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny));
     const uint8_t isWindy = !!(this->flags & static_cast<uint8_t>(somfy_flags_t::Windy));
-    this->publish("sunFlag", sunFlag);
-    this->publish("sunny", isSunny);
-    this->publish("windy", isWindy);    
+    this->publish("sunFlag", sunFlag, true);
+    this->publish("sunny", isSunny, true);
+    this->publish("windy", isWindy, true);
   }  
 }
 void SomfyGroup::publish() {
@@ -1717,6 +1717,10 @@ void SomfyShade::unpublish(uint8_t id) {
     SomfyShade::unpublish(id, "tiltTarget");
     SomfyShade::unpublish(id, "windy");
     SomfyShade::unpublish(id, "sunny");
+    SomfyShade::unpublish(id, "sunFlag");
+    SomfyShade::unpublish(id, "cmd");
+    SomfyShade::unpublish(id, "cmdSource");
+    SomfyShade::unpublish(id, "cmdAddress");
     if(settings.MQTT.pubDisco) {
       char topic[128] = "";
       snprintf(topic, sizeof(topic), "%s/cover/%d/config", settings.MQTT.discoTopic, id);
@@ -1735,7 +1739,7 @@ void SomfyGroup::unpublish(uint8_t id) {
     SomfyGroup::unpublish(id, "direction");
     SomfyGroup::unpublish(id, "lastRollingCode");
     SomfyGroup::unpublish(id, "flags");
-    SomfyGroup::unpublish(id, "SunSensor");
+    SomfyGroup::unpublish(id, "sunSensor");
     SomfyGroup::unpublish(id, "flipCommands");
   }
 }
@@ -1845,18 +1849,18 @@ bool SomfyGroup::publish(const char *topic, bool val, bool retain) {
 float SomfyShade::p_currentPos(float pos) {
   float old = this->currentPos;
   this->currentPos = pos;
-  if(floor(old) != floor(pos)) this->publish("position", this->transformPosition(static_cast<uint8_t>(floor(this->currentPos))));
+  if(floor(old) != floor(pos)) this->publish("position", this->transformPosition(static_cast<uint8_t>(floor(this->currentPos))), true);
   return old;
 }
 float SomfyShade::p_currentTiltPos(float pos) {
   float old = this->currentTiltPos;
   this->currentTiltPos = pos;
-  if(floor(old) != floor(pos)) this->publish("tiltPosition", this->transformPosition(static_cast<uint8_t>(floor(this->currentTiltPos))));
+  if(floor(old) != floor(pos)) this->publish("tiltPosition", this->transformPosition(static_cast<uint8_t>(floor(this->currentTiltPos))), true);
   return old;
 }
 uint16_t SomfyShade::p_lastRollingCode(uint16_t code) {
   uint16_t old = SomfyRemote::p_lastRollingCode(code);
-  if(old != code) this->publish("lastRollingCode", code);
+  if(old != code) this->publish("lastRollingCode", code, true);
   return old;
 }
 bool SomfyShade::p_flag(somfy_flags_t flag, bool val) {
@@ -1869,17 +1873,17 @@ bool SomfyShade::p_flag(somfy_flags_t flag, bool val) {
 }
 bool SomfyShade::p_sunFlag(bool val) {
   bool old = this->p_flag(somfy_flags_t::SunFlag, val);
-  if(old != val) this->publish("sunFlag", static_cast<uint8_t>(val));
+  if(old != val) this->publish("sunFlag", static_cast<uint8_t>(val), true);
   return old;
 }
 bool SomfyShade::p_windy(bool val) {
   bool old = this->p_flag(somfy_flags_t::Windy, val);
-  if(old != val) this->publish("windy", static_cast<uint8_t>(val));
+  if(old != val) this->publish("windy", static_cast<uint8_t>(val), true);
   return old;
 }
 bool SomfyShade::p_sunny(bool val) {
   bool old = this->p_flag(somfy_flags_t::Sunny, val);
-  if(old != val) this->publish("sunny", static_cast<uint8_t>(val));
+  if(old != val) this->publish("sunny", static_cast<uint8_t>(val), true);
   return old;
 }
 int8_t SomfyShade::p_direction(int8_t dir) {
@@ -1894,7 +1898,7 @@ int8_t SomfyGroup::p_direction(int8_t dir) {
   int8_t old = this->direction;
   if(old != dir) {
     this->direction = dir;
-    this->publish("direction", this->direction);
+    this->publish("direction", this->direction, true);
   }
   return old;
 }
