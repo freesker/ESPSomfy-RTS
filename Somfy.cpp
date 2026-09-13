@@ -3757,7 +3757,13 @@ SomfyShade *SomfyShadeController::addShade() {
   // There is no apparent way around this.  In the future we might actually add an indexer
   // to it for sorting later.  The time has come so the sort order is set below.
   if(shadeId == 255) return nullptr;
-  SomfyShade *shade = &this->shades[shadeId - 1];
+  // Le fichier de configuration est relu séquentiellement : après une suppression au milieu puis un
+  // redémarrage, la position dans le tableau ne correspond plus à l'id. On prend donc le premier
+  // emplacement réellement libre plutôt que shades[id - 1], qui pouvait écraser un autre volet.
+  SomfyShade *shade = nullptr;
+  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
+    if(this->shades[i].getShadeId() == 255) { shade = &this->shades[i]; break; }
+  }
   if(shade) {
     shade->setShadeId(shadeId);
     shade->sortOrder = this->getMaxShadeOrder() + 1;
@@ -3851,7 +3857,10 @@ SomfyRoom *SomfyShadeController::addRoom() {
   uint8_t roomId = this->getNextRoomId();
   // So the next room id will be the first one we run into with an id of 0 so
   if(roomId == 0) return nullptr;
-  SomfyRoom *room = &this->rooms[roomId - 1];
+  SomfyRoom *room = nullptr;
+  for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
+    if(this->rooms[i].roomId == 0) { room = &this->rooms[i]; break; }
+  }
   if(room) {
     room->roomId = roomId;
     room->sortOrder = this->getMaxRoomOrder() + 1;
@@ -3876,7 +3885,10 @@ SomfyGroup *SomfyShadeController::addGroup() {
   // There is no apparent way around this.  In the future we might actually add an indexer
   // to it for sorting later.
   if(groupId == 255) return nullptr;
-  SomfyGroup *group = &this->groups[groupId - 1];
+  SomfyGroup *group = nullptr;
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
+    if(this->groups[i].getGroupId() == 255) { group = &this->groups[i]; break; }
+  }
   if(group) {
     group->setGroupId(groupId);
     group->sortOrder = this->getMaxGroupOrder() + 1;
