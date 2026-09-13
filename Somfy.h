@@ -533,6 +533,7 @@ class SomfyShadeController {
   public:
     bool useNVS();
     bool isDirty = false;
+    bool configLoaded = false; // Faux tant qu'aucune configuration valide n'a été chargée : commit() refuse alors d'écraser le fichier.
     uint32_t startingAddress;
     uint8_t getNextRoomId();
     uint8_t getNextShadeId();

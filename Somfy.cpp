@@ -599,10 +599,24 @@ bool SomfyShadeController::begin() {
   #endif
   if(ShadeConfigFile::exists()) {
     LOG_DLN("shades.cfg exists so we are using that");
-    ShadeConfigFile::load(this);
+    // Repli : la copie précédente puis la sauvegarde manuelle. Sans configuration valide, commit()
+    // refuse d'écraser le fichier avec un état vide.
+    if(ShadeConfigFile::load(this)) this->configLoaded = true;
+    else if(LittleFS.exists("/shades.bak") && ShadeConfigFile::load(this, "/shades.bak")) {
+      LOG_ELN("shades.cfg is invalid, loaded shades.bak instead");
+      this->configLoaded = true;
+      this->isDirty = true;
+    }
+    else if(LittleFS.exists("/controller.backup") && ShadeConfigFile::load(this, "/controller.backup")) {
+      LOG_ELN("shades.cfg is invalid, loaded controller.backup instead");
+      this->configLoaded = true;
+      this->isDirty = true;
+    }
+    else LOG_ELN("shades.cfg is invalid and no usable backup was found: configuration will not be overwritten");
   }
   else {
     LOG_DLN("Starting clean");
+    this->configLoaded = true;
     #ifdef USE_NVS
     this->loadLegacy();
     #endif
@@ -629,13 +643,31 @@ bool SomfyShadeController::commit() {
     this->isDirty = true;
     return false;
   }
+  if(!this->configLoaded) {
+    LOG_ELN("Refusing to overwrite shades.cfg: no valid configuration was loaded");
+    return false;
+  }
   esp_task_wdt_reset(); // Make sure we don't reset inadvertently.
+  // Écriture atomique : nouveau fichier, relecture et validation, puis renommage (rename est atomique
+  // sur LittleFS). L'ancien fichier survit dans shades.bak.
   ShadeConfigFile file;
-  if(!file.begin()) return false;
+  if(!file.begin("/shades.new", false)) return false;
   bool ok = file.save(this);
   file.end();
+  if(ok) {
+    ShadeConfigFile check;
+    ok = check.begin("/shades.new", true) && check.validate();
+    check.end();
+  }
   if(!ok) {
     LOG_ELN("Error writing shades.cfg");
+    LittleFS.remove("/shades.new");
+    return false;
+  }
+  LittleFS.remove("/shades.bak");
+  if(LittleFS.exists("/shades.cfg")) LittleFS.rename("/shades.cfg", "/shades.bak");
+  if(!LittleFS.rename("/shades.new", "/shades.cfg")) {
+    LOG_ELN("Error renaming shades.new");
     return false;
   }
   this->isDirty = false;
@@ -835,7 +867,7 @@ bool SomfyGroup::linkShade(uint8_t shadeId) {
   }
   return false;
 }
-void SomfyShade::commit() { somfy.commit(); }
+void SomfyShade::commit() { somfy.isDirty = true; } // Persisté par loop() dans la seconde, hors du traitement HTTP.
 void SomfyShade::commitShadePosition() {
   somfy.isDirty = true;
   #ifdef USE_NVS
@@ -2380,9 +2412,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
       this->lastFrame.processed = true;
       if(this->shadeType == shade_types::drycontact || this->shadeType == shade_types::drycontact2) return;
       if(this->lastFrame.rollingCode & 0x8000) return; // Some sensors send bogus frames with a rollingCode >= 32768 that cause them to change the state.
-      this->p_sunFlag(false);
-      //this->flags &= ~(static_cast<uint8_t>(somfy_flags_t::SunFlag));
-      somfy.isDirty = true;
+      if(this->p_sunFlag(false)) somfy.isDirty = true;
       this->emitState();
       this->emitCommand(cmd, internal ? "internal" : "remote", frame.remoteAddress);
       somfy.updateGroupFlags();
@@ -2393,7 +2423,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
       {
         const bool isWindy = this->flags & static_cast<uint8_t>(somfy_flags_t::Windy);
         //this->flags |= static_cast<uint8_t>(somfy_flags_t::SunFlag);
-        this->p_sunFlag(true);
+        bool wasSet = this->p_sunFlag(true);
         if (!isWindy)
         {
           const bool isSunny = this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny);
@@ -2410,7 +2440,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
               this->p_target(0.0f);
           }
         }
-        somfy.isDirty = true;
+        if(!wasSet) somfy.isDirty = true;
         this->emitState();
         this->emitCommand(cmd, internal ? "internal" : "remote", frame.remoteAddress);
         somfy.updateGroupFlags();
@@ -2777,9 +2807,8 @@ void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat) {
       }
       break;
     case somfy_commands::Flag:
-      this->p_sunFlag(false);
+      if(this->p_sunFlag(false)) somfy.isDirty = true;
       if(this->hasSunSensor()) {
-        somfy.isDirty = true;
         this->emitState();
       }
       else {
@@ -2789,8 +2818,7 @@ void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat) {
     case somfy_commands::SunFlag:
       if(this->hasSunSensor()) {
         const bool isWindy = this->flags & static_cast<uint8_t>(somfy_flags_t::Windy);
-        this->p_sunFlag(true);
-        //this->flags |= static_cast<uint8_t>(somfy_flags_t::SunFlag);
+        bool wasSet = this->p_sunFlag(true);
         if (!isWindy)
         {
           const bool isSunny = this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny);
@@ -2799,7 +2827,7 @@ void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat) {
           else if (!isSunny && this->noSunDone)
             this->p_target(0.0f);
         }
-        somfy.isDirty = true;
+        if(!wasSet) somfy.isDirty = true;
         this->emitState();
       }
       else
@@ -4181,7 +4209,11 @@ bool SomfyShadeController::deleteGroup(uint8_t groupId) {
   return true;
 }
 
-bool SomfyShadeController::loadShadesFile(const char *filename) { return ShadeConfigFile::load(this, filename); }
+bool SomfyShadeController::loadShadesFile(const char *filename) {
+  bool ok = ShadeConfigFile::load(this, filename);
+  if(ok) this->configLoaded = true;
+  return ok;
+}
 uint16_t SomfyRemote::getNextRollingCode() {
   pref.begin("ShadeCodes");
   uint16_t code = pref.getUShort(this->m_remotePrefId, 0);

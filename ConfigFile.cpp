@@ -536,6 +536,7 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
     if(opened) this->end();
     return false;
   }
+  s->configLoaded = true;
   if(opts.shades) {
     LOG_ILN("Restoring Rooms...");
     for(uint8_t i = 0; i < this->header.roomRecords; i++) {
