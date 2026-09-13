@@ -75,16 +75,19 @@ void Web::handleStaticFile(WebServer &server, const char *filename, const char *
 void Web::end() {
   //server.end();
 }
+// Réponse d'erreur JSON uniforme : {"status":"ERROR","desc":"..."} avec un vrai code HTTP.
+static void sendError(WebServer &server, int code, const char *desc) {
+  snprintf(g_content, sizeof(g_content), "{\"status\":\"ERROR\",\"desc\":\"%s\"}", desc);
+  server.send(code, _encoding_json, g_content);
+}
 void Web::handleDeserializationError(WebServer &server, DeserializationError &err) {
     switch (err.code()) {
-    case DeserializationError::InvalidInput:
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid JSON payload\"}"));
-      break;
     case DeserializationError::NoMemory:
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Out of memory parsing JSON\"}"));
+      sendError(server, 500, "Out of memory parsing JSON");
       break;
+    case DeserializationError::InvalidInput:
     default:
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"General JSON Deserialization failed\"}"));
+      sendError(server, 400, "Invalid JSON payload");
       break;
     }
 }
@@ -124,7 +127,7 @@ bool Web::hasValidToken(WebServer &server, bool cfg) {
 }
 bool Web::isAuthenticated(WebServer &server, bool cfg) {
   if(this->hasValidToken(server, cfg)) return true;
-  server.send(401, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Unauthorized\"}"));
+  sendError(server, 401, "Unauthorized");
   return false;
 }
 bool Web::createAPIPinToken(const IPAddress ipAddress, const char *pin, char *token) {
@@ -277,7 +280,7 @@ void Web::handleLogin(WebServer &server) {
 }
 void Web::handleStreamFile(WebServer &server, const char *filename, const char *encoding) {
   if(git.lockFS) {
-    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Filesystem update in progress\"}"));
+    sendError(server, 409, "Filesystem update in progress");
     return;
   }
   esp_task_wdt_reset();
@@ -289,6 +292,7 @@ void Web::handleStreamFile(WebServer &server, const char *filename, const char *
     LOG_E("Error opening");
     LOG_ELN(filename);
     server.send(500, _encoding_text, "Error opening file");
+    return;
   }
   esp_task_wdt_delete(NULL);
   server.streamFile(file, encoding);
@@ -402,7 +406,7 @@ void Web::handleShadeCommand(WebServer& server) {
   if(!this->isAuthenticated(server, false)) return;
   HTTPMethod method = server.method();
   uint8_t shadeId = 255;
-  uint8_t target = 255;
+  int target = -1;
   uint8_t stepSize = 0;
   int8_t repeat = -1;
   somfy_commands command = somfy_commands::My;
@@ -425,25 +429,26 @@ void Web::handleShadeCommand(WebServer& server) {
       else {
         JsonObject obj = doc.as<JsonObject>();
         if (obj.containsKey("shadeId")) shadeId = obj["shadeId"];
-        else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}"));
+        else { sendError(server, 400, "No shade id was supplied."); return; }
         if (obj.containsKey("command")) {
             String scmd = obj["command"];
             command = translateSomfyCommand(scmd);
         }
         else if (obj.containsKey("target")) {
-            target = obj["target"].as<uint8_t>();
+            target = obj["target"].as<int>();
         }
         if (obj.containsKey("repeat")) repeat = obj["repeat"].as<uint8_t>();
         if(obj.containsKey("stepSize")) stepSize = obj["stepSize"].as<uint8_t>();
       }
     }
-    else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}"));
+    else { sendError(server, 400, "No shade object supplied."); return; }
+    if(target > 100) { sendError(server, 400, "target must be between 0 and 100"); return; }
     SomfyShade* shade = somfy.getShadeById(shadeId);
     if (shade) {
       LOG_D("Received:");
       LOG_DLN(server.arg("plain"));
       // Send the command to the shade.
-      if (target <= 100)
+      if (target >= 0 && target <= 100)
           shade->moveToTarget(shade->transformPosition(target));
       else
           shade->sendCommand(command, repeat > 0 ? repeat : shade->repeats, stepSize);
@@ -455,11 +460,11 @@ void Web::handleShadeCommand(WebServer& server) {
       resp.endResponse();
     }
     else {
-        server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade with the specified id not found.\"}"));
+        sendError(server, 404, "Shade with the specified id not found.");
     }
   }
   else
-    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
+    sendError(server, 405, "Invalid Http method");
 }
 void Web::handleRepeatCommand(WebServer& server) {
   if(!this->isAuthenticated(server, false)) return;
@@ -499,7 +504,7 @@ void Web::handleRepeatCommand(WebServer& server) {
     if(shadeId != 255) {
       SomfyShade *shade = somfy.getShadeById(shadeId);
       if(!shade) {
-        server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade reference could not be found.\"}"));
+        sendError(server, 500, "Shade reference could not be found.");
         return;        
       }
       if(shade->shadeType == shade_types::garage1 && command == somfy_commands::Prog) command = somfy_commands::Toggle;
@@ -520,7 +525,7 @@ void Web::handleRepeatCommand(WebServer& server) {
     else if(groupId != 255) {
       SomfyGroup * group = somfy.getGroupById(groupId);
       if(!group) {
-        server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group reference could not be found.\"}"));
+        sendError(server, 500, "Group reference could not be found.");
         return;        
       }
       if(!group->isLastCommand(command)) {
@@ -542,7 +547,7 @@ void Web::handleRepeatCommand(WebServer& server) {
     }
   }
   else {
-    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
+    sendError(server, 405, "Invalid Http method");
   }
 }
 void Web::handleGroupCommand(WebServer &server) {
@@ -571,7 +576,7 @@ void Web::handleGroupCommand(WebServer &server) {
         JsonObject obj = doc.as<JsonObject>();
         if (obj.containsKey("groupId")) groupId = obj["groupId"];
         else {
-          server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group id was supplied.\"}"));
+          sendError(server, 400, "No group id was supplied.");
           return;
         }
         if (obj.containsKey("command")) {
@@ -582,7 +587,7 @@ void Web::handleGroupCommand(WebServer &server) {
         if(obj.containsKey("stepSize")) stepSize = obj["stepSize"].as<uint8_t>();
       }
     }
-    else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}"));
+    else { sendError(server, 400, "No group object supplied."); return; }
     SomfyGroup * group = somfy.getGroupById(groupId);
     if (group) {
       LOG_D("Received:");
@@ -597,17 +602,17 @@ void Web::handleGroupCommand(WebServer &server) {
       resp.endResponse();
     }
     else {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group with the specified id not found.\"}"));
+      sendError(server, 404, "Group with the specified id not found.");
     }
   }
   else
-    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
+    sendError(server, 405, "Invalid Http method");
 }
 void Web::handleTiltCommand(WebServer &server) {
   if(!this->isAuthenticated(server, false)) return;
   HTTPMethod method = server.method();
   uint8_t shadeId = 255;
-  uint8_t target = 255;
+  int target = -1;
   somfy_commands command = somfy_commands::My;
   if (method == HTTP_GET || method == HTTP_PUT || method == HTTP_POST) {
     if (server.hasArg("shadeId")) {
@@ -626,17 +631,18 @@ void Web::handleTiltCommand(WebServer &server) {
       else {
         JsonObject obj = doc.as<JsonObject>();
         if (obj.containsKey("shadeId")) shadeId = obj["shadeId"];
-        else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}"));
+        else { sendError(server, 400, "No shade id was supplied."); return; }
         if (obj.containsKey("command")) {
           String scmd = obj["command"];
           command = translateSomfyCommand(scmd);
         }
         else if(obj.containsKey("target")) {
-          target = obj["target"].as<uint8_t>();
+          target = obj["target"].as<int>();
         }
       }
     }
-    else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}"));
+    else { sendError(server, 400, "No shade object supplied."); return; }
+    if(target > 100) { sendError(server, 400, "target must be between 0 and 100"); return; }
     SomfyShade* shade = somfy.getShadeById(shadeId);
     if (shade) {
       LOG_D("Received:");
@@ -654,11 +660,11 @@ void Web::handleTiltCommand(WebServer &server) {
       resp.endResponse();
     }
     else {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade with the specified id not found.\"}"));
+      sendError(server, 404, "Shade with the specified id not found.");
     }  
   }
   else
-    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
+    sendError(server, 405, "Invalid Http method");
 }
 void Web::handleRoom(WebServer &server) {
   if(!this->isAuthenticated(server, server.method() != HTTP_GET)) return;
@@ -675,10 +681,10 @@ void Web::handleRoom(WebServer &server) {
         resp.endObject();
         resp.endResponse();
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Room Id not found.\"}"));
+      else sendError(server, 404, "Room Id not found.");
     }
     else {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"You must supply a valid room id.\"}"));
+      sendError(server, 400, "You must supply a valid room id.");
     }
   }
   else if (method == HTTP_PUT || method == HTTP_POST) {
@@ -711,15 +717,15 @@ void Web::handleRoom(WebServer &server) {
               server.send(500, _encoding_json, g_content);
             }
           }
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Room Id not found.\"}"));
+          else sendError(server, 404, "Room Id not found.");
         }
-        else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room id was supplied.\"}"));
+        else sendError(server, 400, "No room id was supplied.");
       }
     }
-    else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room object supplied.\"}"));
+    else sendError(server, 400, "No room object supplied.");
   }
   else
-    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
+    sendError(server, 405, "Invalid Http method");
 }
 void Web::handleShade(WebServer &server) {
   if(!this->isAuthenticated(server, server.method() != HTTP_GET)) return;
@@ -736,10 +742,10 @@ void Web::handleShade(WebServer &server) {
         resp.endObject();
         resp.endResponse();
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade Id not found.\"}"));
+      else sendError(server, 404, "Shade Id not found.");
     }
     else {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"You must supply a valid shade id.\"}"));
+      sendError(server, 400, "You must supply a valid shade id.");
     }
   }
   else if (method == HTTP_PUT || method == HTTP_POST) {
@@ -772,15 +778,15 @@ void Web::handleShade(WebServer &server) {
               server.send(500, _encoding_json, g_content);
             }
           }
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade Id not found.\"}"));
+          else sendError(server, 404, "Shade Id not found.");
         }
-        else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}"));
+        else { sendError(server, 400, "No shade id was supplied."); return; }
       }
     }
-    else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}"));
+    else { sendError(server, 400, "No shade object supplied."); return; }
   }
   else
-    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
+    sendError(server, 405, "Invalid Http method");
 }
 void Web::handleGroup(WebServer &server) {
   if(!this->isAuthenticated(server, server.method() != HTTP_GET)) return;
@@ -797,10 +803,10 @@ void Web::handleGroup(WebServer &server) {
         resp.endObject();
         resp.endResponse();
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group Id not found.\"}"));
+      else sendError(server, 404, "Group Id not found.");
     }
     else {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"You must supply a valid shade id.\"}"));
+      sendError(server, 400, "You must supply a valid shade id.");
     }
   }
   else if (method == HTTP_PUT || method == HTTP_POST) {
@@ -827,15 +833,15 @@ void Web::handleGroup(WebServer &server) {
             resp.endObject();
             resp.endResponse();
           }
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group Id not found.\"}"));
+          else sendError(server, 404, "Group Id not found.");
         }
-        else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group id was supplied.\"}"));
+        else sendError(server, 400, "No group id was supplied.");
       }
     }
-    else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}"));
+    else { sendError(server, 400, "No group object supplied."); return; }
   }
   else
-    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
+    sendError(server, 405, "Invalid Http method");
 }
 void Web::handleDiscovery(WebServer &server) {
   HTTPMethod method = apiServer.method();
@@ -918,8 +924,8 @@ void Web::handleBackup(WebServer &server, bool attach) {
 void Web::handleSetPositions(WebServer &server) {
   if(!this->isAuthenticated(server, false)) return;
   uint8_t shadeId = (server.hasArg("shadeId")) ? atoi(server.arg("shadeId").c_str()) : 255;
-  int8_t pos = (server.hasArg("position")) ? atoi(server.arg("position").c_str()) : -1;
-  int8_t tiltPos = (server.hasArg("tiltPosition")) ? atoi(server.arg("tiltPosition").c_str()) : -1;
+  int pos = (server.hasArg("position")) ? atoi(server.arg("position").c_str()) : -1;
+  int tiltPos = (server.hasArg("tiltPosition")) ? atoi(server.arg("tiltPosition").c_str()) : -1;
   if(server.hasArg("plain")) {
     DynamicJsonDocument doc(512);
     DeserializationError err = deserializeJson(doc, server.arg("plain"));
@@ -933,6 +939,10 @@ void Web::handleSetPositions(WebServer &server) {
       if(obj.containsKey("position")) pos = obj["position"];
       if(obj.containsKey("tiltPosition")) tiltPos = obj["tiltPosition"];
     }
+  }
+  if(pos > 100 || tiltPos > 100) {
+    sendError(server, 400, "position and tiltPosition must be between 0 and 100");
+    return;
   }
   if(shadeId != 255) {
     SomfyShade *shade = somfy.getShadeById(shadeId);
@@ -948,10 +958,10 @@ void Web::handleSetPositions(WebServer &server) {
       resp.endResponse();
     }
     else
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An invalid shadeId was provided\"}"));
+      sendError(server, 400, "An invalid shadeId was provided");
   }
   else {
-    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"shadeId was not provided\"}"));
+    sendError(server, 400, "shadeId was not provided");
   }
 }
 void Web::handleSetSensor(WebServer &server) {
@@ -1000,7 +1010,7 @@ void Web::handleSetSensor(WebServer &server) {
       resp.endResponse();
     }
     else
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An invalid shadeId was provided\"}"));
+      sendError(server, 400, "An invalid shadeId was provided");
       
   }
   else if(groupId != 255) {
@@ -1016,25 +1026,25 @@ void Web::handleSetSensor(WebServer &server) {
       resp.endResponse();
     }
     else
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An invalid groupId was provided\"}"));
+      sendError(server, 400, "An invalid groupId was provided");
   }
   else {
-    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"shadeId was not provided\"}"));
+    sendError(server, 400, "shadeId was not provided");
   }
 }
 void Web::handleDownloadFirmware(WebServer &server) {
   if(!this->isAuthenticated(server, true)) return;
   if(git.status != GIT_STATUS_READY) {
-    server.send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An update is already in progress\"}"));
+    sendError(server, 409, "An update is already in progress");
     return;
   }
   if(!server.hasArg("ver")) {
-    server.send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Release version not supplied.\"}"));
+    sendError(server, 400, "Release version not supplied.");
     return;
   }
   GitRepo *repo = new GitRepo();
   if(!repo) {
-    server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Out of memory\"}"));
+    sendError(server, 500, "Out of memory");
     return;
   }
   int16_t err = repo->getReleases();
@@ -1056,7 +1066,7 @@ void Web::handleDownloadFirmware(WebServer &server) {
   }
   if(!rel || rel->id == 0) {
     delete repo;
-    server.send(404, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Release not found in repo.\"}"));
+    sendError(server, 404, "Release not found in repo.");
     return;
   }
   JsonResponse resp;
@@ -1154,7 +1164,7 @@ void Web::begin() {
     if(!webServer.isAuthenticated(server, true)) return;
     GitRepo *repo = new GitRepo();
     if(!repo) {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Out of memory\"}"));
+      sendError(server, 500, "Out of memory");
       return;
     }
     int16_t err = repo->getReleases();
@@ -1188,7 +1198,7 @@ void Web::begin() {
       git.cancelled = true;
     }
     else {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Cannot cancel during filesystem update.\"}"));
+      sendError(server, 409, "Cannot cancel during filesystem update.");
     }
   });
   server.on("/backup", []() { webServer.handleBackup(server, true); });
@@ -1197,7 +1207,7 @@ void Web::begin() {
     server.sendHeader("Connection", "close");
     if(!webServer.uploadSuccess) {
       LittleFS.remove("/shades.tmp");
-      server.send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No backup file was uploaded\"}"));
+      sendError(server, 400, "No backup file was uploaded");
       return;
     }
     restore_options_t opts;
@@ -1221,7 +1231,7 @@ void Web::begin() {
     bool restored = ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
     LittleFS.remove("/shades.tmp");
     if(!restored) {
-      server.send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"The backup file is invalid or does not match this device\"}"));
+      sendError(server, 400, "The backup file is invalid or does not match this device");
       return;
     }
     server.send(200, _encoding_json, F("{\"status\":\"Success\",\"desc\":\"Restoring Shade settings\"}"));
@@ -1321,14 +1331,14 @@ void Web::begin() {
         JsonObject obj = doc.as<JsonObject>();
         LOG_DLN("Counting rooms");
         if (somfy.roomCount() > SOMFY_MAX_ROOMS) {
-          server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Maximum number of rooms exceeded.\"}"));
+          sendError(server, 500, "Maximum number of rooms exceeded.");
           return;
         }
         else {
           LOG_DLN("Adding room");
           room = somfy.addRoom(obj);
           if (!room) {
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error adding room.\"}"));
+            sendError(server, 500, "Error adding room.");
             return;
           }
         }
@@ -1343,7 +1353,7 @@ void Web::begin() {
       resp.endResponse();
     }
     else {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error saving Somfy Room.\"}"));
+      sendError(server, 500, "Error saving Somfy Room.");
     }
     });
   server.on("/addShade", []() {
@@ -1362,14 +1372,14 @@ void Web::begin() {
         JsonObject obj = doc.as<JsonObject>();
         LOG_DLN("Counting shades");
         if (somfy.shadeCount() > SOMFY_MAX_SHADES) {
-          server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Maximum number of shades exceeded.\"}"));
+          sendError(server, 500, "Maximum number of shades exceeded.");
           return;
         }
         else {
           LOG_DLN("Adding shade");
           shade = somfy.addShade(obj);
           if (!shade) {
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error adding shade.\"}"));
+            sendError(server, 500, "Error adding shade.");
             return;
           }
         }
@@ -1385,7 +1395,7 @@ void Web::begin() {
       resp.endResponse();
     }
     else {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error saving Somfy Shade.\"}"));
+      sendError(server, 500, "Error saving Somfy Shade.");
     }
     });
   server.on("/addGroup", []() {
@@ -1404,14 +1414,14 @@ void Web::begin() {
         JsonObject obj = doc.as<JsonObject>();
         LOG_DLN("Counting shades");
         if (somfy.groupCount() > SOMFY_MAX_GROUPS) {
-          server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Maximum number of groups exceeded.\"}"));
+          sendError(server, 500, "Maximum number of groups exceeded.");
           return;
         }
         else {
           LOG_DLN("Adding group");
           group = somfy.addGroup(obj);
           if (!group) {
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error adding group.\"}"));
+            sendError(server, 500, "Error adding group.");
             return;
           }
         }
@@ -1426,7 +1436,7 @@ void Web::begin() {
       resp.endResponse();
     }
     else {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error saving Somfy Group.\"}"));
+      sendError(server, 500, "Error saving Somfy Group.");
     }
     });
   server.on("/groupOptions", []() {
@@ -1463,10 +1473,10 @@ void Web::begin() {
           resp.endObject();
           resp.endResponse();
         }
-        else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group Id not found.\"}"));
+        else sendError(server, 404, "Group Id not found.");
       }
       else {
-        server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"You must supply a valid group id.\"}"));
+        sendError(server, 400, "You must supply a valid group id.");
       }
     }
     
@@ -1498,12 +1508,12 @@ void Web::begin() {
               resp.endObject();
               resp.endResponse();
             }
-            else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Room Id not found.\"}"));
+            else sendError(server, 404, "Room Id not found.");
           }
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room id was supplied.\"}"));
+          else sendError(server, 400, "No room id was supplied.");
         }
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room object supplied.\"}"));
+      else sendError(server, 400, "No room object supplied.");
     }
   });
 
@@ -1541,12 +1551,12 @@ void Web::begin() {
                 server.send(500, _encoding_json, g_content);
               }
             }
-            else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade Id not found.\"}"));
+            else sendError(server, 404, "Shade Id not found.");
           }
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}"));
+          else { sendError(server, 400, "No shade id was supplied."); return; }
         }
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}"));
+      else { sendError(server, 400, "No shade object supplied."); return; }
     }
   });
   server.on("/saveGroup", []() {
@@ -1576,12 +1586,12 @@ void Web::begin() {
               resp.endObject();
               resp.endResponse();
             }
-            else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group Id not found.\"}"));
+            else sendError(server, 404, "Group Id not found.");
           }
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group id was supplied.\"}"));
+          else sendError(server, 400, "No group id was supplied.");
         }
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}"));
+      else { sendError(server, 400, "No group object supplied."); return; }
     }
     });
   server.on("/setMyPosition", []() {
@@ -1606,12 +1616,12 @@ void Web::begin() {
         else {
           JsonObject obj = doc.as<JsonObject>();
           if (obj.containsKey("shadeId")) shadeId = obj["shadeId"];
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}"));
+          else { sendError(server, 400, "No shade id was supplied."); return; }
           if(obj.containsKey("pos")) pos = obj["pos"].as<int8_t>();
           if(obj.containsKey("tilt")) tilt = obj["tilt"].as<int8_t>();
         }
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}"));
+      else { sendError(server, 400, "No shade object supplied."); return; }
       SomfyShade* shade = somfy.getShadeById(shadeId);
       if (shade) {
         // Send the command to the shade.
@@ -1627,11 +1637,11 @@ void Web::begin() {
           resp.endResponse();
       }
       else {
-        server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade with the specified id not found.\"}"));
+        sendError(server, 404, "Shade with the specified id not found.");
       }
     }
     else 
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid Http method\"}"));
+      sendError(server, 405, "Invalid Http method");
     });
   server.on("/setRollingCode", []() {
     if(!webServer.isAuthenticated(server, true)) return;
@@ -1641,7 +1651,7 @@ void Web::begin() {
       uint16_t rollingCode = 0;
       if (server.hasArg("plain")) {
         // Its coming in the body.
-        StaticJsonDocument<129> doc;
+        StaticJsonDocument<256> doc;
         DeserializationError err = deserializeJson(doc, server.arg("plain"));
         if (err) {
           webServer.handleDeserializationError(server, err);
@@ -1660,7 +1670,7 @@ void Web::begin() {
       SomfyShade* shade = nullptr;
       if (shadeId != 255) shade = somfy.getShadeById(shadeId);
       if (!shade) {
-        server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to set rolling code\"}"));
+        sendError(server, 404, "Shade not found to set rolling code");
       }
       else {
         shade->setRollingCode(rollingCode);
@@ -1697,7 +1707,7 @@ void Web::begin() {
     SomfyShade* shade = nullptr;
     if (shadeId != 255) shade = somfy.getShadeById(shadeId);
     if (!shade) {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to pair\"}"));
+      sendError(server, 404, "Shade not found to pair");
     }
     else {
       shade->paired = paired;
@@ -1733,7 +1743,7 @@ void Web::begin() {
       SomfyShade* shade = nullptr;
       if (shadeId != 255) shade = somfy.getShadeById(shadeId);
       if (!shade) {
-        server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to unpair\"}"));
+        sendError(server, 404, "Shade not found to unpair");
       }
       else {
         if(shade->bitLength == 56)
@@ -1774,7 +1784,7 @@ void Web::begin() {
       else if(server.hasArg("address"))
         address = atoi(server.arg("address").c_str());
       if(address == 0)
-          server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No repeater address was supplied.\"}"));
+          sendError(server, 400, "No repeater address was supplied.");
       else {
         somfy.linkRepeater(address);
         JsonResponse resp;
@@ -1809,7 +1819,7 @@ void Web::begin() {
       else if(server.hasArg("address"))
         address = atoi(server.arg("address").c_str());
       if(address == 0)
-          server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No repeater address was supplied.\"}"));
+          sendError(server, 400, "No repeater address was supplied.");
       else {
         somfy.unlinkRepeater(address);
         JsonResponse resp;
@@ -1844,7 +1854,7 @@ void Web::begin() {
                 shade->unlinkRemote(obj["remoteAddress"]);
               }
               else {
-                server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Remote address not provided.\"}"));
+                sendError(server, 400, "Remote address not provided.");
               }
               JsonResponse resp;
               resp.beginResponse(&server, g_content, sizeof(g_content));
@@ -1853,12 +1863,12 @@ void Web::begin() {
               resp.endObject();
               resp.endResponse();
             }
-            else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade Id not found.\"}"));
+            else sendError(server, 404, "Shade Id not found.");
           }
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}"));
+          else { sendError(server, 400, "No shade id was supplied."); return; }
         }
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No remote object supplied.\"}"));
+      else sendError(server, 400, "No remote object supplied.");
     }
     });
   server.on("/linkRemote", []() {
@@ -1884,7 +1894,7 @@ void Web::begin() {
                 else shade->linkRemote(obj["remoteAddress"]);
               }
               else {
-                server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Remote address not provided.\"}"));
+                sendError(server, 400, "Remote address not provided.");
               }
               JsonResponse resp;
               resp.beginResponse(&server, g_content, sizeof(g_content));
@@ -1893,12 +1903,12 @@ void Web::begin() {
               resp.endObject();
               resp.endResponse();
             }
-            else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade Id not found.\"}"));
+            else sendError(server, 404, "Shade Id not found.");
           }
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}"));
+          else { sendError(server, 400, "No shade id was supplied."); return; }
         }
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No remote object supplied.\"}"));
+      else sendError(server, 400, "No remote object supplied.");
     }
     });
   server.on("/linkToGroup", []() {
@@ -1918,21 +1928,21 @@ void Web::begin() {
           uint8_t shadeId = obj.containsKey("shadeId") ? obj["shadeId"] : 0;
           uint8_t groupId = obj.containsKey("groupId") ? obj["groupId"] : 0;
           if(groupId == 0) {
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group id not provided.\"}"));
+            sendError(server, 400, "Group id not provided.");
             return;
           }
           if(shadeId == 0) {
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade id not provided.\"}"));
+            sendError(server, 400, "Shade id not provided.");
             return;
           }
           SomfyGroup * group = somfy.getGroupById(groupId);
           if(!group) {
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group id not found.\"}"));
+            sendError(server, 404, "Group id not found.");
             return;
           }
           SomfyShade * shade = somfy.getShadeById(shadeId);
           if(!shade) {
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade id not found.\"}"));
+            sendError(server, 404, "Shade id not found.");
             return;
           }
           group->linkShade(shadeId);
@@ -1944,7 +1954,7 @@ void Web::begin() {
           resp.endResponse();
         }
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No linking object supplied.\"}"));
+      else sendError(server, 400, "No linking object supplied.");
     }
   });
   server.on("/unlinkFromGroup", []() {
@@ -1958,13 +1968,13 @@ void Web::begin() {
         if (err) {
           switch (err.code()) {
           case DeserializationError::InvalidInput:
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid JSON payload\"}"));
+            sendError(server, 400, "Invalid JSON payload");
             break;
           case DeserializationError::NoMemory:
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Out of memory parsing JSON\"}"));
+            sendError(server, 500, "Out of memory parsing JSON");
             break;
           default:
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"General JSON Deserialization failed\"}"));
+            sendError(server, 500, "General JSON Deserialization failed");
             break;
           }
         }
@@ -1973,21 +1983,21 @@ void Web::begin() {
           uint8_t shadeId = obj.containsKey("shadeId") ? obj["shadeId"] : 0;
           uint8_t groupId = obj.containsKey("groupId") ? obj["groupId"] : 0;
           if(groupId == 0) {
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group id not provided.\"}"));
+            sendError(server, 400, "Group id not provided.");
             return;
           }
           if(shadeId == 0) {
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade id not provided.\"}"));
+            sendError(server, 400, "Shade id not provided.");
             return;
           }
           SomfyGroup * group = somfy.getGroupById(groupId);
           if(!group) {
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group id not found.\"}"));
+            sendError(server, 404, "Group id not found.");
             return;
           }
           SomfyShade * shade = somfy.getShadeById(shadeId);
           if(!shade) {
-            server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade id not found.\"}"));
+            sendError(server, 404, "Shade id not found.");
             return;
           }
           group->unlinkShade(shadeId);
@@ -1999,7 +2009,7 @@ void Web::begin() {
           resp.endResponse();
         }
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No unlinking object supplied.\"}"));
+      else sendError(server, 400, "No unlinking object supplied.");
     }
   });
   server.on("/deleteRoom", []() {
@@ -2021,13 +2031,13 @@ void Web::begin() {
         else {
           JsonObject obj = doc.as<JsonObject>();
           if (obj.containsKey("roomId")) roomId = obj["roomId"];
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room id was supplied.\"}"));
+          else sendError(server, 400, "No room id was supplied.");
         }
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room object supplied.\"}"));
+      else sendError(server, 400, "No room object supplied.");
     }
     SomfyRoom* room = somfy.getRoomById(roomId);
-    if (!room) server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Room with the specified id not found.\"}"));
+    if (!room) sendError(server, 404, "Room with the specified id not found.");
     else {
       somfy.deleteRoom(roomId);
       server.send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Room deleted.\"}"));
@@ -2052,15 +2062,15 @@ void Web::begin() {
         else {
           JsonObject obj = doc.as<JsonObject>();
           if (obj.containsKey("shadeId")) shadeId = obj["shadeId"];
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}"));
+          else { sendError(server, 400, "No shade id was supplied."); return; }
         }
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}"));
+      else { sendError(server, 400, "No shade object supplied."); return; }
     }
     SomfyShade* shade = somfy.getShadeById(shadeId);
-    if (!shade) server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade with the specified id not found.\"}"));
+    if (!shade) sendError(server, 404, "Shade with the specified id not found.");
     else if(shade->isInGroup()) {
-      server.send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"This shade is a member of a group and cannot be deleted.\"}"));
+      sendError(server, 400, "This shade is a member of a group and cannot be deleted.");
     }
     else {
       somfy.deleteShade(shadeId);
@@ -2086,13 +2096,13 @@ void Web::begin() {
         else {
           JsonObject obj = doc.as<JsonObject>();
           if (obj.containsKey("groupId")) groupId = obj["groupId"];
-          else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group id was supplied.\"}"));
+          else sendError(server, 400, "No group id was supplied.");
         }
       }
-      else server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}"));
+      else { sendError(server, 400, "No group object supplied."); return; }
     }
     SomfyGroup * group = somfy.getGroupById(groupId);
-    if (!group) server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group with the specified id not found.\"}"));
+    if (!group) sendError(server, 404, "Group with the specified id not found.");
     else {
       somfy.deleteGroup(groupId);
       server.send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Group deleted.\"}"));
@@ -2101,11 +2111,11 @@ void Web::begin() {
   server.on("/updateFirmware", HTTP_POST, []() {
     if(!webServer.isAuthenticated(server, true)) return;
     if(webServer.uploadRejected) {
-      server.send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An update is already in progress\"}"));
+      sendError(server, 409, "An update is already in progress");
       return;
     }
     if(Update.hasError() || !webServer.uploadSuccess) {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error updating firmware\"}"));
+      sendError(server, 500, "Error updating firmware");
       return;
     }
     server.send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated firmware\"}"));
@@ -2148,11 +2158,11 @@ void Web::begin() {
     server.sendHeader("Connection", "close");
     LittleFS.remove("/shades.tmp");
     if(git.lockFS) {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Filesystem update in progress\"}"));
+      sendError(server, 409, "Filesystem update in progress");
       return;
     }
     if(!webServer.uploadSuccess) {
-      server.send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid shade configuration file\"}"));
+      sendError(server, 400, "Invalid shade configuration file");
       return;
     }
     server.send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Shade configuration loaded\"}"));
@@ -2186,11 +2196,11 @@ void Web::begin() {
     if(!webServer.isAuthenticated(server, true)) return;
     server.sendHeader("Connection", "close");
     if(webServer.uploadRejected) {
-      server.send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An update is already in progress\"}"));
+      sendError(server, 409, "An update is already in progress");
       return;
     }
     if(Update.hasError() || !webServer.uploadSuccess) {
-      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error updating application\"}"));
+      sendError(server, 500, "Error updating application");
       return;
     }
     server.send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated application\"}"));
@@ -2276,10 +2286,8 @@ void Web::begin() {
     DynamicJsonDocument doc(512);
     DeserializationError err = deserializeJson(doc, server.arg("plain"));
     if (err) {
-      LOG_E("Error parsing JSON ");
-      LOG_ELN(err.c_str());
-      String msg = err.c_str();
-      server.send(400, _encoding_html, "Error parsing JSON body<br>" + msg);
+      webServer.handleDeserializationError(server, err);
+      return;
     }
     else {
       JsonObject obj = doc.as<JsonObject>();
@@ -2314,10 +2322,8 @@ void Web::begin() {
     DynamicJsonDocument doc(512);
     DeserializationError err = deserializeJson(doc, server.arg("plain"));
     if (err) {
-      LOG_E("Error parsing JSON ");
-      LOG_ELN(err.c_str());
-      String msg = err.c_str();
-      server.send(400, _encoding_html, "Error parsing JSON body<br>" + msg);
+      webServer.handleDeserializationError(server, err);
+      return;
     }
     else {
       JsonObject obj = doc.as<JsonObject>();
@@ -2366,7 +2372,7 @@ void Web::begin() {
         if (server.hasArg("repeats")) repeats = atoi(server.arg("repeats").c_str());
       }
       else if (server.hasArg("plain")) {
-        StaticJsonDocument<128> doc;
+        StaticJsonDocument<256> doc;
         DeserializationError err = deserializeJson(doc, server.arg("plain"));
         if (err) {
           webServer.handleDeserializationError(server, err);
@@ -2388,7 +2394,7 @@ void Web::begin() {
         server.send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Command Sent\"}"));
       }
       else
-        server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No address or rolling code provided\"}"));
+        sendError(server, 400, "No address or rolling code provided");
     }
     });
   server.on("/setgeneral", []() {
@@ -2431,10 +2437,8 @@ void Web::begin() {
     DynamicJsonDocument doc(1024);
     DeserializationError err = deserializeJson(doc, server.arg("plain"));
     if (err) {
-      LOG_E("Error parsing JSON ");
-      LOG_ELN(err.c_str());
-      String msg = err.c_str();
-      server.send(400, _encoding_html, "Error parsing JSON body<br>" + msg);
+      webServer.handleDeserializationError(server, err);
+      return;
     }
     else {
       JsonObject obj = doc.as<JsonObject>();
@@ -2534,7 +2538,7 @@ void Web::begin() {
           SETCHARPROP(settings.WIFI.passphrase, passphrase.c_str(), sizeof(settings.WIFI.passphrase));
           settings.WIFI.save();
           settings.WIFI.print();
-          server.send(201, _encoding_json, "{\"status\":\"OK\",\"desc\":\"Successfully set server connection\"}");
+          server.send(200, _encoding_json, "{\"status\":\"OK\",\"desc\":\"Successfully set server connection\"}");
           if (reboot) {
             LOG_ILN("Rebooting ESP for new WiFi settings...");
             rebootDelay.reboot = true;
