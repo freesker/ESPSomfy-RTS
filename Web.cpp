@@ -50,14 +50,6 @@ void Web::loop() {
   apiServer.handleClient();
   delay(1);
 }
-void Web::sendCORSHeaders(WebServer &server) { 
-    //server.sendHeader(F("Connection"), F("Keep-Alive")); 
-    //server.sendHeader(F("Keep-Alive"), F("timeout=5, max=1000"));
-    //server.sendHeader(F("Access-Control-Allow-Origin"), F("*"));
-    //server.sendHeader(F("Access-Control-Max-Age"), F("600"));
-    //server.sendHeader(F("Access-Control-Allow-Methods"), F("PUT,POST,GET,OPTIONS"));
-    //server.sendHeader(F("Access-Control-Allow-Headers"), F("*"));
-}
 void Web::sendCacheHeaders(uint32_t seconds) {
   char buff[64];
   snprintf(buff, sizeof(buff), "public, max-age=%lu, immutable", (unsigned long)seconds);
@@ -157,13 +149,6 @@ bool Web::createAPIToken(const IPAddress ipAddress, char *token) {
     else createAPIToken(ipAddress.toString().c_str(), token);
     return true;
 }
-void Web::handleLogout(WebServer &server) {
-  LOG_DLN("Logging out of webserver");
-  server.sendHeader("Location", "/");
-  server.sendHeader("Cache-Control", "no-cache");
-  server.sendHeader("Set-Cookie", "ESPSOMFYID=0");
-  server.send(301);
-}
 // Intégrité des fichiers flashés par l'interface : le client envoie le SHA-256 du fichier dans le
 // champ "sha256" du formulaire (avant le fichier) et l'image n'est activée que s'il correspond.
 void Web::beginUploadDigest() {
@@ -209,8 +194,6 @@ bool Web::beginFlashUpload(WebServer &server, int partition) {
   return true;
 }
 void Web::handleLogin(WebServer &server) {
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     StaticJsonDocument<256> doc;
     JsonObject obj = doc.to<JsonObject>();
     char token[65];
@@ -297,8 +280,6 @@ void Web::handleStreamFile(WebServer &server, const char *filename, const char *
     server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Filesystem update in progress\"}"));
     return;
   }
-  webServer.sendCORSHeaders(server);
-  if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   esp_task_wdt_reset();
   // Load the index html page from the data directory.
   LOG_D("Loading file ");
@@ -317,8 +298,6 @@ void Web::handleStreamFile(WebServer &server, const char *filename, const char *
 }
 void Web::handleController(WebServer &server) {
   if(!this->isAuthenticated(server, false)) return;
-  webServer.sendCORSHeaders(server);
-  if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
   settings.printAvailHeap();
   if (method == HTTP_POST || method == HTTP_GET) {
@@ -355,8 +334,6 @@ void Web::handleController(WebServer &server) {
   else server.send(404, _encoding_text, _response_404);
 }
 void Web::handleLoginContext(WebServer &server) {
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
     resp.beginObject();
@@ -371,8 +348,6 @@ void Web::handleLoginContext(WebServer &server) {
 }
 void Web::handleGetRepeaters(WebServer &server) {
   if(!this->isAuthenticated(server, false)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_POST || method == HTTP_GET) {
       JsonResponse resp;
@@ -386,8 +361,6 @@ void Web::handleGetRepeaters(WebServer &server) {
 }
 void Web::handleGetRooms(WebServer &server) {
   if(!this->isAuthenticated(server, false)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_POST || method == HTTP_GET) {
       JsonResponse resp;
@@ -401,8 +374,6 @@ void Web::handleGetRooms(WebServer &server) {
 }
 void Web::handleGetShades(WebServer &server) {
   if(!this->isAuthenticated(server, false)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_POST || method == HTTP_GET) {
       JsonResponse resp;
@@ -416,8 +387,6 @@ void Web::handleGetShades(WebServer &server) {
 }
 void Web::handleGetGroups(WebServer &server) {
   if(!this->isAuthenticated(server, false)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_POST || method == HTTP_GET) {
       JsonResponse resp;
@@ -431,8 +400,6 @@ void Web::handleGetGroups(WebServer &server) {
 }
 void Web::handleShadeCommand(WebServer& server) {
   if(!this->isAuthenticated(server, false)) return;
-  webServer.sendCORSHeaders(server);
-  if (server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
   uint8_t shadeId = 255;
   uint8_t target = 255;
@@ -496,9 +463,7 @@ void Web::handleShadeCommand(WebServer& server) {
 }
 void Web::handleRepeatCommand(WebServer& server) {
   if(!this->isAuthenticated(server, false)) return;
-  webServer.sendCORSHeaders(server);
   HTTPMethod method = server.method();
-  if (method == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   uint8_t shadeId = 255;
   uint8_t groupId = 255;
   uint8_t stepSize = 0;
@@ -582,8 +547,6 @@ void Web::handleRepeatCommand(WebServer& server) {
 }
 void Web::handleGroupCommand(WebServer &server) {
   if(!this->isAuthenticated(server, false)) return;
-  webServer.sendCORSHeaders(server);
-  if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
   uint8_t groupId = 255;
   uint8_t stepSize = 0;
@@ -642,8 +605,6 @@ void Web::handleGroupCommand(WebServer &server) {
 }
 void Web::handleTiltCommand(WebServer &server) {
   if(!this->isAuthenticated(server, false)) return;
-  webServer.sendCORSHeaders(server);
-  if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
   uint8_t shadeId = 255;
   uint8_t target = 255;
@@ -701,8 +662,6 @@ void Web::handleTiltCommand(WebServer &server) {
 }
 void Web::handleRoom(WebServer &server) {
   if(!this->isAuthenticated(server, server.method() != HTTP_GET)) return;
-  webServer.sendCORSHeaders(server);
-  if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
   if (method == HTTP_GET) {
     if (server.hasArg("roomId")) {
@@ -764,8 +723,6 @@ void Web::handleRoom(WebServer &server) {
 }
 void Web::handleShade(WebServer &server) {
   if(!this->isAuthenticated(server, server.method() != HTTP_GET)) return;
-  webServer.sendCORSHeaders(server);
-  if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
   if (method == HTTP_GET) {
     if (server.hasArg("shadeId")) {
@@ -827,8 +784,6 @@ void Web::handleShade(WebServer &server) {
 }
 void Web::handleGroup(WebServer &server) {
   if(!this->isAuthenticated(server, server.method() != HTTP_GET)) return;
-  webServer.sendCORSHeaders(server);
-  if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
   if (method == HTTP_GET) {
     if (server.hasArg("groupId")) {
@@ -927,7 +882,6 @@ void Web::handleDiscovery(WebServer &server) {
 }
 void Web::handleBackup(WebServer &server, bool attach) {
   if(!this->isAuthenticated(server, true)) return;
-  webServer.sendCORSHeaders(server);
   if(server.hasArg("attach")) attach = toBoolean(server.arg("attach").c_str(), attach);
   if(attach) {
     char filename[120];
@@ -963,8 +917,6 @@ void Web::handleBackup(WebServer &server, bool attach) {
 }
 void Web::handleSetPositions(WebServer &server) {
   if(!this->isAuthenticated(server, false)) return;
-  webServer.sendCORSHeaders(server);
-  if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   uint8_t shadeId = (server.hasArg("shadeId")) ? atoi(server.arg("shadeId").c_str()) : 255;
   int8_t pos = (server.hasArg("position")) ? atoi(server.arg("position").c_str()) : -1;
   int8_t tiltPos = (server.hasArg("tiltPosition")) ? atoi(server.arg("tiltPosition").c_str()) : -1;
@@ -1004,8 +956,6 @@ void Web::handleSetPositions(WebServer &server) {
 }
 void Web::handleSetSensor(WebServer &server) {
   if(!this->isAuthenticated(server, false)) return;
-  webServer.sendCORSHeaders(server);
-  if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   uint8_t shadeId = (server.hasArg("shadeId")) ? atoi(server.arg("shadeId").c_str()) : 255;
   uint8_t groupId = (server.hasArg("groupId")) ? atoi(server.arg("groupId").c_str()) : 255;
   int8_t sunny = (server.hasArg("sunny")) ? toBoolean(server.arg("sunny").c_str(), false) ? 1 : 0 : -1;
@@ -1074,8 +1024,6 @@ void Web::handleSetSensor(WebServer &server) {
 }
 void Web::handleDownloadFirmware(WebServer &server) {
   if(!this->isAuthenticated(server, true)) return;
-  webServer.sendCORSHeaders(server);
-  if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   if(git.status != GIT_STATUS_READY) {
     server.send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An update is already in progress\"}"));
     return;
@@ -1152,8 +1100,6 @@ void Web::handleNotFound(WebServer &server) {
 }
 void Web::handleReboot(WebServer &server) {
   if(!this->isAuthenticated(server, true)) return;
-  webServer.sendCORSHeaders(server);
-  if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
   HTTPMethod method = server.method();
   if (method == HTTP_POST || method == HTTP_PUT) {
     LOG_ILN("Rebooting ESP...");
@@ -1206,8 +1152,6 @@ void Web::begin() {
   server.on("/loginContext", []() { webServer.handleLoginContext(server); });
   server.on("/getReleases", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     GitRepo *repo = new GitRepo();
     if(!repo) {
       server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Out of memory\"}"));
@@ -1232,8 +1176,6 @@ void Web::begin() {
   server.on("/downloadFirmware", []() { webServer.handleDownloadFirmware(server); });
   server.on("/cancelFirmware", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     // If we are currently downloading the filesystem we cannot cancel.
     if(!git.lockFS) {
       git.status = GIT_UPDATE_CANCELLING;
@@ -1252,7 +1194,6 @@ void Web::begin() {
   server.on("/backup", []() { webServer.handleBackup(server, true); });
   server.on("/restore", HTTP_POST, []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
     server.sendHeader("Connection", "close");
     if(!webServer.uploadSuccess) {
       LittleFS.remove("/shades.tmp");
@@ -1330,8 +1271,6 @@ void Web::begin() {
   server.on("/group", []() { webServer.handleGroup(server); });
   server.on("/getNextRoom", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
     resp.beginObject();
@@ -1341,8 +1280,6 @@ void Web::begin() {
   });
   server.on("/getNextShade", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     uint8_t shadeId = somfy.getNextShadeId();
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
@@ -1357,7 +1294,6 @@ void Web::begin() {
     });
   server.on("/getNextGroup", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
     uint8_t groupId = somfy.getNextGroupId();
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
@@ -1371,7 +1307,6 @@ void Web::begin() {
     });
   server.on("/addRoom", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     SomfyRoom * room = nullptr;
     if (method == HTTP_POST || method == HTTP_PUT) {
@@ -1413,7 +1348,6 @@ void Web::begin() {
     });
   server.on("/addShade", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     SomfyShade* shade = nullptr;
     if (method == HTTP_POST || method == HTTP_PUT) {
@@ -1456,7 +1390,6 @@ void Web::begin() {
     });
   server.on("/addGroup", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     SomfyGroup * group = nullptr;
     if (method == HTTP_POST || method == HTTP_PUT) {
@@ -1498,8 +1431,6 @@ void Web::begin() {
     });
   server.on("/groupOptions", []() {
     if(!webServer.isAuthenticated(server, false)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_GET || method == HTTP_POST) {
       if (server.hasArg("groupId")) {
@@ -1542,8 +1473,6 @@ void Web::begin() {
     });
   server.on("/saveRoom", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_PUT || method == HTTP_POST) {
       // We are updating an existing room.
@@ -1581,8 +1510,6 @@ void Web::begin() {
   server.on("/saveShade", []() {
 
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_PUT || method == HTTP_POST) {
       // We are updating an existing shade.
@@ -1624,8 +1551,6 @@ void Web::begin() {
   });
   server.on("/saveGroup", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_PUT || method == HTTP_POST) {
       // We are updating an existing shade.
@@ -1661,8 +1586,6 @@ void Web::begin() {
     });
   server.on("/setMyPosition", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     uint8_t shadeId = 255;
     int8_t pos = -1;
@@ -1712,8 +1635,6 @@ void Web::begin() {
     });
   server.on("/setRollingCode", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_PUT || method == HTTP_POST) {
       uint8_t shadeId = 255;
@@ -1754,8 +1675,6 @@ void Web::begin() {
   });
   server.on("/setPaired", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     uint8_t shadeId = 255;
     bool paired = false;
     if(server.hasArg("plain")) {
@@ -1793,8 +1712,6 @@ void Web::begin() {
   });
   server.on("/unpairShade", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_PUT || method == HTTP_POST) {
       uint8_t shadeId = 255;
@@ -1836,8 +1753,6 @@ void Web::begin() {
     });
   server.on("/linkRepeater", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_PUT || method == HTTP_POST) {
       // We are adding a linked repeater.
@@ -1873,8 +1788,6 @@ void Web::begin() {
   });
   server.on("/unlinkRepeater", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_PUT || method == HTTP_POST) {
       // We are adding a linked repeater.
@@ -1912,8 +1825,6 @@ void Web::begin() {
   server.on("/unlinkRemote", []() {
   
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_PUT || method == HTTP_POST) {
       // We are updating an existing shade by adding a linked remote.
@@ -1952,8 +1863,6 @@ void Web::begin() {
     });
   server.on("/linkRemote", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_PUT || method == HTTP_POST) {
       // We are updating an existing shade by adding a linked remote.
@@ -1994,8 +1903,6 @@ void Web::begin() {
     });
   server.on("/linkToGroup", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_PUT || method == HTTP_POST) {
       if (server.hasArg("plain")) {
@@ -2042,8 +1949,6 @@ void Web::begin() {
   });
   server.on("/unlinkFromGroup", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_PUT || method == HTTP_POST) {
       if (server.hasArg("plain")) {
@@ -2099,8 +2004,6 @@ void Web::begin() {
   });
   server.on("/deleteRoom", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     uint8_t roomId = 0;
     if (method == HTTP_GET || method == HTTP_PUT || method == HTTP_POST) {
@@ -2132,8 +2035,6 @@ void Web::begin() {
     });
   server.on("/deleteShade", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     uint8_t shadeId = 255;
     if (method == HTTP_GET || method == HTTP_PUT || method == HTTP_POST) {
@@ -2168,8 +2069,6 @@ void Web::begin() {
     });
   server.on("/deleteGroup", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     uint8_t groupId = 255;
     if (method == HTTP_GET || method == HTTP_PUT || method == HTTP_POST) {
@@ -2201,7 +2100,6 @@ void Web::begin() {
     });
   server.on("/updateFirmware", HTTP_POST, []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
     if(webServer.uploadRejected) {
       server.send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An update is already in progress\"}"));
       return;
@@ -2247,7 +2145,6 @@ void Web::begin() {
     });
   server.on("/updateShadeConfig", HTTP_POST, []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
     server.sendHeader("Connection", "close");
     LittleFS.remove("/shades.tmp");
     if(git.lockFS) {
@@ -2287,7 +2184,6 @@ void Web::begin() {
     });
   server.on("/updateApplication", HTTP_POST, []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
     server.sendHeader("Connection", "close");
     if(webServer.uploadRejected) {
       server.send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An update is already in progress\"}"));
@@ -2340,10 +2236,8 @@ void Web::begin() {
     });
   server.on("/scanaps", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
     esp_task_wdt_reset();
     
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     esp_task_wdt_delete(NULL);
     if(net.softAPOpened) WiFi.disconnect(false);
     int n = WiFi.scanNetworks(false, true);
@@ -2379,8 +2273,6 @@ void Web::begin() {
   server.on("/reboot", []() { webServer.handleReboot(server);});
   server.on("/saveSecurity", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
     DeserializationError err = deserializeJson(doc, server.arg("plain"));
     if (err) {
@@ -2411,7 +2303,6 @@ void Web::begin() {
     });
   server.on("/getSecurity", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
     DynamicJsonDocument doc(512);
     JsonObject obj = doc.to<JsonObject>();
     settings.Security.toJSON(obj);
@@ -2420,8 +2311,6 @@ void Web::begin() {
     });
   server.on("/saveRadio", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
     DeserializationError err = deserializeJson(doc, server.arg("plain"));
     if (err) {
@@ -2456,7 +2345,6 @@ void Web::begin() {
     });
   server.on("/getRadio", []() {
     if(!webServer.isAuthenticated(server, false)) return;
-    webServer.sendCORSHeaders(server);
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
     resp.beginObject();
@@ -2466,8 +2354,6 @@ void Web::begin() {
     });
   server.on("/sendRemoteCommand", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     HTTPMethod method = server.method();
     if (method == HTTP_GET || method == HTTP_PUT || method == HTTP_POST) {
       somfy_frame_t frame;
@@ -2507,8 +2393,6 @@ void Web::begin() {
     });
   server.on("/setgeneral", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
     
     LOG_D("Plain: ");
@@ -2544,8 +2428,6 @@ void Web::begin() {
     });
   server.on("/setNetwork", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(1024);
     DeserializationError err = deserializeJson(doc, server.arg("plain"));
     if (err) {
@@ -2601,8 +2483,6 @@ void Web::begin() {
   });
   server.on("/setIP", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     LOG_DLN("Setting IP...");
     DynamicJsonDocument doc(1024);
     DeserializationError err = deserializeJson(doc, server.arg("plain"));
@@ -2625,8 +2505,6 @@ void Web::begin() {
   });
   server.on("/connectwifi", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     LOG_DLN("Settings WIFI connection...");
     DynamicJsonDocument doc(512);
     DeserializationError err = deserializeJson(doc, server.arg("plain"));
@@ -2671,7 +2549,6 @@ void Web::begin() {
     });
   server.on("/modulesettings", []() {
     if(!webServer.isAuthenticated(server, false)) return;
-    webServer.sendCORSHeaders(server);
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
     resp.beginObject();
@@ -2694,7 +2571,6 @@ void Web::begin() {
     });
   server.on("/networksettings", []() {
     if(!webServer.isAuthenticated(server, false)) return;
-    webServer.sendCORSHeaders(server);
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
     resp.beginObject();
@@ -2729,7 +2605,6 @@ void Web::begin() {
     });
   server.on("/connectmqtt", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(1024);
     DeserializationError err = deserializeJson(doc, server.arg("plain"));
     if (err) {
@@ -2767,7 +2642,6 @@ void Web::begin() {
     });
   server.on("/mqttsettings", []() {
     if(!webServer.isAuthenticated(server, false)) return;
-    webServer.sendCORSHeaders(server);
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
     resp.beginObject();
@@ -2785,7 +2659,6 @@ void Web::begin() {
     });
   server.on("/roomSortOrder", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
     LOG_D("Plain: ");
     LOG_D(server.method());
@@ -2817,7 +2690,6 @@ void Web::begin() {
   });
   server.on("/shadeSortOrder", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
     LOG_D("Plain: ");
     LOG_D(server.method());
@@ -2849,7 +2721,6 @@ void Web::begin() {
   });
   server.on("/groupSortOrder", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     DynamicJsonDocument doc(512);
     LOG_D("Plain: ");
     LOG_D(server.method());
@@ -2881,7 +2752,6 @@ void Web::begin() {
   });  
   server.on("/beginFrequencyScan", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
     somfy.transceiver.beginFrequencyScan();
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
@@ -2899,7 +2769,6 @@ void Web::begin() {
   });
   server.on("/endFrequencyScan", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    webServer.sendCORSHeaders(server);
     somfy.transceiver.endFrequencyScan();
     JsonResponse resp;
     resp.beginResponse(&server, g_content, sizeof(g_content));
@@ -2917,8 +2786,6 @@ void Web::begin() {
   });
   server.on("/recoverFilesystem", []() {
     if(!webServer.isAuthenticated(server, true)) return;
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
-    webServer.sendCORSHeaders(server);
     if(git.status == GIT_UPDATING)
       server.send(200, "application/json", "{\"status\":\"OK\",\"desc\":\"Filesystem is updating.  Please wait!!!\"}");
     else if(git.status != GIT_STATUS_READY)

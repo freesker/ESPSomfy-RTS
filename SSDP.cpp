@@ -125,31 +125,6 @@ char * UPNPDeviceType::getUSN(response_types_t responseType) {
   }
   return this->m_usn;
 }
-char * UPNPDeviceType::getUSN(const char *st) { 
-  //#ifdef DEBUG_SSDP
-  //DEBUG_SSDP.print("GETUSN ST: ");
-  //DEBUG_SSDP.println(st);
-  //DEBUG_SSDP.print("GETUSN UUID: ");
-  //DEBUG_SSDP.println(this->uuid);
-  //DEBUG_SSDP.print("sizeof(this->m_usn)");
-  //DEBUG_SSDP.println(sizeof(this->m_usn));
-  //#endif
-  if(strncmp("upnp:rootdevice", st, strlen(st)) == 0) {
-    snprintf_P(this->m_usn, sizeof(this->m_usn) - 1, _ssdp_usn_root_template, this->uuid); 
-  }
-  else if(strncmp("uuid:", st, 5) == 0)
-    snprintf_P(this->m_usn, sizeof(this->m_usn) - 1, _ssdp_usn_uuid_template, this->uuid);
-  else if(strncmp("urn:", st, 4) == 0)
-    snprintf_P(this->m_usn, sizeof(this->m_usn) -1, _ssdp_usn_urn_template, this->uuid, this->deviceType);
-  else {
-    snprintf_P(this->m_usn, sizeof(this->m_usn) - 1, _ssdp_usn_uuid_template, this->uuid); 
-  }
-  //#ifdef DEBUG_SSDP
-  //DEBUG_SSDP.print("RESUSN UUID: ");
-  //DEBUG_SSDP.println(this->m_usn);
-  //#endif
-  return this->m_usn; 
-}
 void UPNPDeviceType::setChipId(uint32_t chipId) {
   snprintf_P(this->uuid, sizeof(this->uuid), _ssdp_uuid_template,
     0x40,

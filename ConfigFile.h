@@ -39,7 +39,6 @@ class ConfigFile {
     config_header_t header;
     void end();
     bool isOpen();
-    bool seekRecordByIndex(uint16_t ndx);
     bool readHeader();
     bool seekChar(const char val);
     bool writeHeader(const config_header_t &header);

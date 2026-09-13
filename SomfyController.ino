@@ -116,9 +116,5 @@ void loop() {
     esp_task_wdt_reset();
     timing = millis();
   }
-  if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
-    net.end();
-    ESP.restart();
-  }
   esp_task_wdt_reset();
 }

@@ -44,7 +44,6 @@ struct appver_t {
 
 class BaseSettings {
   public:
-    bool loadFile(const char* filename);
     bool fromJSON(JsonObject &obj);
     bool toJSON(JsonObject &obj);
     void toJSON(JsonResponse &json);
@@ -53,7 +52,6 @@ class BaseSettings {
     bool parseSecretString(JsonObject &obj, const char *prop, char *dest, size_t size, bool allowEmpty = true);
     int parseValueInt(JsonObject &obj, const char *prop, int defVal);
     double parseValueDouble(JsonObject &obj, const char *prop, double defVal);
-    bool saveFile(const char* filename);
     bool save();
     bool load();
 };

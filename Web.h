@@ -13,11 +13,9 @@ class Web {
     void updateUploadDigest(const uint8_t *buf, size_t len);
     bool verifyUploadDigest(WebServer &server);
     bool beginFlashUpload(WebServer &server, int partition);
-    void sendCORSHeaders(WebServer &server);
     void sendCacheHeaders(uint32_t seconds=604800);
     void startup();
     void handleLogin(WebServer &server);
-    void handleLogout(WebServer &server);
     void handleStreamFile(WebServer &server, const char *filename, const char *encoding);
     void handleStaticFile(WebServer &server, const char *filename, const char *encoding, uint32_t cacheSeconds);
     void handleController(WebServer &server);

@@ -102,35 +102,6 @@ void appver_t::toJSON(JsonSockEvent *json) {
 }
 
 bool BaseSettings::load() { return true; }
-bool BaseSettings::loadFile(const char *filename) { 
-  size_t filesize = 10;
-  String data = "";
-  if(LittleFS.exists(filename)) {
-    File file = LittleFS.open(filename, "r");
-    filesize += file.size();
-    while(file.available()) {
-      char c = file.read();
-      data += c;
-    }
-    DynamicJsonDocument doc(filesize);
-    deserializeJson(doc, data);
-    JsonObject obj = doc.as<JsonObject>();
-    this->fromJSON(obj);
-    file.close();
-  }
-  return false; 
-}
-bool BaseSettings::saveFile(const char *filename) {
-  File file = LittleFS.open(filename, "w");
-  DynamicJsonDocument doc(2048);
-  JsonObject obj = doc.as<JsonObject>();
-  this->toJSON(obj);
-  serializeJson(doc, file);
-  file.close();
-  return true;
-}
-// Un secret n'est jamais renvoyé au client : l'API renvoie SECRET_MASK à la place. Si le client
-// nous renvoie ce masque (formulaire non modifié) la valeur en mémoire est conservée.
 bool BaseSettings::parseSecretString(JsonObject &obj, const char *prop, char *pdest, size_t size, bool allowEmpty) {
   if(!obj.containsKey(prop) || !obj[prop].is<const char*>()) return false;
   const char *val = obj[prop].as<const char*>();

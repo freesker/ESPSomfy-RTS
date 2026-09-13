@@ -34,14 +34,6 @@ uint8_t rxmode = 0;  // Indicates whether the radio is in receive mode.  Just to
 #define TILT_REPEATS 15
 #define TX_QUEUE_DELAY 100
 
-int sort_asc(const void *cmp1, const void *cmp2) {
-  int a = *((uint8_t *)cmp1);
-  int b = *((uint8_t *)cmp2);
-  if(a == b) return 0;
-  else if(a < b) return -1;
-  return 1;
-}
-
 static int interruptPin = 0;
 static uint8_t bit_length = 56;
 somfy_commands translateSomfyCommand(const String& string) {
@@ -479,11 +471,9 @@ void somfy_frame_t::copy(somfy_frame_t &frame) {
 }
 void SomfyShadeController::end() { this->transceiver.disableReceive(); }
 SomfyShadeController::SomfyShadeController() {
-  memset(this->m_shadeIds, 255, sizeof(this->m_shadeIds));
   uint64_t mac = ESP.getEfuseMac();
   this->startingAddress = mac & 0x0FFFFF;
 }
-bool SomfyShadeController::useNVS() { return !(settings.appVersion.major > 1 || settings.appVersion.minor >= 4); };
 SomfyShade *SomfyShadeController::findShadeByRemoteAddress(uint32_t address) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     SomfyShade &shade = this->shades[i];
@@ -514,89 +504,10 @@ void SomfyShadeController::updateGroupFlags() {
     }
   }
 }
-#ifdef USE_NVS
-bool SomfyShadeController::loadLegacy() {
-  LOG_DLN("Loading Legacy shades using NVS");
-  pref.begin("Shades", true);
-  pref.getBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-  pref.end();
-  for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-    if(i != 0) DEBUG_SOMFY.print(",");
-    DEBUG_SOMFY.print(this->m_shadeIds[i]);
-  }
-  DEBUG_SOMFY.println();
-  sortArray<uint8_t>(this->m_shadeIds, sizeof(this->m_shadeIds));
-  #ifdef DEBUG_SOMFY
-  for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-    if(i != 0) DEBUG_SOMFY.print(",");
-    DEBUG_SOMFY.print(this->m_shadeIds[i]);
-  }
-  DEBUG_SOMFY.println();
-  #endif
-
-  uint8_t id = 0;
-  for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-    if(this->m_shadeIds[i] == id) this->m_shadeIds[i] = 255;
-    id = this->m_shadeIds[i];
-    SomfyShade *shade = &this->shades[i];
-    shade->setShadeId(id);
-    if(id == 255) {
-      continue;
-    }
-    shade->load();
-  }
-  #ifdef DEBUG_SOMFY
-  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-    DEBUG_SOMFY.print(this->shades[i].getShadeId());
-    DEBUG_SOMFY.print(":");
-    DEBUG_SOMFY.print(this->m_shadeIds[i]);
-    if(i < SOMFY_MAX_SHADES - 1) DEBUG_SOMFY.print(",");
-  }
-  LOG_DLN();
-  #endif
-  #ifdef USE_NVS
-  if(!this->useNVS()) {
-    pref.begin("Shades");
-    pref.putBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-    pref.end();
-  }
-  #endif
-  this->commit();
-  return true;
-}
-#endif
 bool SomfyShadeController::begin() {
   // Load up all the configuration data.
   //ShadeConfigFile::getAppVersion(this->appVersion);
   LOG_DF("App Version:%u.%u.%u\n", settings.appVersion.major, settings.appVersion.minor, settings.appVersion.build);
-  #ifdef USE_NVS
-  if(!this->useNVS()) {  // At 1.4 we started using the configuration file.  If the file doesn't exist then booh.
-    // We need to remove all the extraeneous data from NVS for the shades.  From here on out we
-    // will rely on the shade configuration.
-    LOG_ELN("No longer using NVS");
-    if(ShadeConfigFile::exists()) {
-      ShadeConfigFile::load(this);
-    }
-    else {
-      this->loadLegacy();
-    }
-    pref.begin("Shades");
-    if(pref.isKey("shadeIds")) {
-      pref.getBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-      pref.clear(); // Delete all the keys.
-    }
-    pref.end();
-    for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-      // Start deleting the keys for the shades.
-      if(this->m_shadeIds[i] == 255) continue;
-      char shadeKey[15];
-      sprintf(shadeKey, "SomfyShade%u", this->m_shadeIds[i]);
-      pref.begin(shadeKey);
-      pref.clear();
-      pref.end();
-    }
-  }
-  #endif
   if(ShadeConfigFile::exists()) {
     LOG_DLN("shades.cfg exists so we are using that");
     // Repli : la copie précédente puis la sauvegarde manuelle. Sans configuration valide, commit()
@@ -617,9 +528,6 @@ bool SomfyShadeController::begin() {
   else {
     LOG_DLN("Starting clean");
     this->configLoaded = true;
-    #ifdef USE_NVS
-    this->loadLegacy();
-    #endif
   }
   this->transceiver.begin();
 
@@ -829,22 +737,6 @@ bool SomfyShade::linkRemote(uint32_t address, uint16_t rollingCode) {
     if(this->linkedRemotes[i].getRemoteAddress() == 0) {
       this->linkedRemotes[i].setRemoteAddress(address);
       this->linkedRemotes[i].setRollingCode(rollingCode);
-      #ifdef USE_NVS
-      if(somfy.useNVS()) {
-        uint32_t linkedAddresses[SOMFY_MAX_LINKED_REMOTES];
-        memset(linkedAddresses, 0x00, sizeof(linkedAddresses));
-        uint8_t j = 0;
-        for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-          SomfyLinkedRemote lremote = this->linkedRemotes[i];
-          if(lremote.getRemoteAddress() != 0) linkedAddresses[j++] = lremote.getRemoteAddress();
-        }
-        char shadeKey[15];
-        snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->getShadeId());
-        pref.begin(shadeKey);
-        pref.putBytes("linkedAddr", linkedAddresses, sizeof(uint32_t) * SOMFY_MAX_LINKED_REMOTES);
-        pref.end();
-      }
-      #endif
       this->commit();
       return true;
     }
@@ -870,67 +762,17 @@ bool SomfyGroup::linkShade(uint8_t shadeId) {
 void SomfyShade::commit() { somfy.isDirty = true; } // Persisté par loop() dans la seconde, hors du traitement HTTP.
 void SomfyShade::commitShadePosition() {
   somfy.isDirty = true;
-  #ifdef USE_NVS
-  char shadeKey[15];
-  if(somfy.useNVS()) {
-    snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->shadeId);
-    LOG_D("Writing current shade position: ");
-    LOG_DLN(this->currentPos, 4);
-    pref.begin(shadeKey);
-    pref.putFloat("currentPos", this->currentPos);
-    pref.end();
-  }
-  #endif
 }
 void SomfyShade::commitMyPosition() {
   somfy.isDirty = true;
-  #ifdef USE_NVS
-  if(somfy.useNVS()) {
-    char shadeKey[15];
-    snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->shadeId);
-    LOG_D("Writing my shade position:");
-    LOG_D(this->myPos);
-    LOG_DLN("%");
-    pref.begin(shadeKey);
-    pref.putUShort("myPos", this->myPos);
-    pref.end();
-  }
-  #endif
 }
 void SomfyShade::commitTiltPosition() {
   somfy.isDirty = true;
-  #ifdef USE_NVS
-  if(somfy.useNVS()) {
-    char shadeKey[15];
-    snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->shadeId);
-    LOG_D("Writing current shade tilt position: ");
-    LOG_DLN(this->currentTiltPos, 4);
-    pref.begin(shadeKey);
-    pref.putFloat("currentTiltPos", this->currentTiltPos);
-    pref.end();
-  }
-  #endif
 }
 bool SomfyShade::unlinkRemote(uint32_t address) {
   for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
     if(this->linkedRemotes[i].getRemoteAddress() == address) {
       this->linkedRemotes[i].setRemoteAddress(0);
-      #ifdef USE_NVS
-      if(somfy.useNVS()) {
-        char shadeKey[15];
-        snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->getShadeId());
-        uint32_t linkedAddresses[SOMFY_MAX_LINKED_REMOTES];
-        memset(linkedAddresses, 0x00, sizeof(linkedAddresses));
-        uint8_t j = 0;
-        for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-          SomfyLinkedRemote lremote = this->linkedRemotes[i];
-          if(lremote.getRemoteAddress() != 0) linkedAddresses[j++] = lremote.getRemoteAddress();
-        }
-        pref.begin(shadeKey);
-        pref.putBytes("linkedAddr", linkedAddresses, sizeof(uint32_t) * SOMFY_MAX_LINKED_REMOTES);
-        pref.end();
-      }
-      #endif
       this->commit();
       return true;
     }
@@ -1464,68 +1306,6 @@ void SomfyShade::checkMovement() {
     this->emitState();
   }
 }
-#ifdef USE_NVS
-void SomfyShade::load() {
-    char shadeKey[15];
-    uint32_t linkedAddresses[SOMFY_MAX_LINKED_REMOTES];
-    memset(linkedAddresses, 0x00, sizeof(uint32_t) * SOMFY_MAX_LINKED_REMOTES);
-    snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->shadeId);
-    // Now load up each of the shades into memory.
-    //LOG_D("key:");
-    //LOG_DLN(shadeKey);
-    
-    pref.begin(shadeKey, !somfy.useNVS());
-    pref.getString("name", this->name, sizeof(this->name));
-    this->paired = pref.getBool("paired", false);
-    if(pref.isKey("upTime") && pref.getType("upTime") != PreferenceType::PT_U32) {
-      // We need to convert these to 32 bits because earlier versions did not support this.
-      this->upTime = static_cast<uint32_t>(pref.getUShort("upTime", 1000));
-      this->downTime = static_cast<uint32_t>(pref.getUShort("downTime", 1000));
-      this->tiltTime = static_cast<uint32_t>(pref.getUShort("tiltTime", 7000));
-      if(somfy.useNVS()) {
-        pref.remove("upTime");
-        pref.putUInt("upTime", this->upTime);
-        pref.remove("downTime");
-        pref.putUInt("downTime", this->downTime);
-        pref.remove("tiltTime");
-        pref.putUInt("tiltTime", this->tiltTime);
-      }
-    }
-    else {
-      this->upTime = pref.getUInt("upTime", this->upTime);
-      this->downTime = pref.getUInt("downTime", this->downTime);
-      this->tiltTime = pref.getUInt("tiltTime", this->tiltTime);
-    }
-    this->setRemoteAddress(pref.getUInt("remoteAddress", 0));
-    this->currentPos = pref.getFloat("currentPos", 0);
-    this->target = floor(this->currentPos);
-    this->myPos = static_cast<float>(pref.getUShort("myPos", this->myPos));
-    this->tiltType = pref.getBool("hasTilt", false) ? tilt_types::none : tilt_types::tiltmotor;
-    this->shadeType = static_cast<shade_types>(pref.getChar("shadeType", static_cast<uint8_t>(this->shadeType)));
-    this->currentTiltPos = pref.getFloat("currentTiltPos", 0);
-    this->tiltTarget = floor(this->currentTiltPos);
-    pref.getBytes("linkedAddr", linkedAddresses, sizeof(linkedAddresses));
-    pref.end();
-    LOG_D("shadeId:");
-    LOG_D(this->getShadeId());
-    LOG_D(" name:");
-    LOG_D(this->name);
-    LOG_D(" address:");
-    LOG_D(this->getRemoteAddress());
-    LOG_D(" position:");
-    LOG_D(this->currentPos);
-    LOG_D(" myPos:");
-    LOG_DLN(this->myPos);
-    pref.begin("ShadeCodes");
-    this->lastRollingCode = pref.getUShort(this->m_remotePrefId, 0);
-    for(uint8_t j = 0; j < SOMFY_MAX_LINKED_REMOTES; j++) {
-      SomfyLinkedRemote &lremote = this->linkedRemotes[j];
-      lremote.setRemoteAddress(linkedAddresses[j]);
-      lremote.lastRollingCode = pref.getUShort(lremote.getRemotePrefId(), 0);
-    }
-    pref.end();
-}
-#endif
 void SomfyRoom::publish() {
   if(mqtt.connected()) {
     char topic[64];
@@ -3182,35 +2962,6 @@ void SomfyShade::moveToTarget(float pos, float tilt) {
   }
 }
 bool SomfyShade::save() {
-  #ifdef USE_NVS
-  if(somfy.useNVS()) {
-    char shadeKey[15];
-    snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->getShadeId());
-    pref.begin(shadeKey);
-    pref.clear();
-    pref.putChar("shadeType", static_cast<uint8_t>(this->shadeType));
-    pref.putUInt("remoteAddress", this->getRemoteAddress());
-    pref.putString("name", this->name);
-    pref.putBool("hasTilt", this->tiltType != tilt_types::none);
-    pref.putBool("paired", this->paired);
-    pref.putUInt("upTime", this->upTime);
-    pref.putUInt("downTime", this->downTime);
-    pref.putUInt("tiltTime", this->tiltTime);
-    pref.putFloat("currentPos", this->currentPos);
-    pref.putFloat("currentTiltPos", this->currentTiltPos);
-    pref.putUShort("myPos", this->myPos);
-    uint32_t linkedAddresses[SOMFY_MAX_LINKED_REMOTES];
-    memset(linkedAddresses, 0x00, sizeof(linkedAddresses));
-    uint8_t j = 0;
-    for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-      SomfyLinkedRemote lremote = this->linkedRemotes[i];
-      if(lremote.getRemoteAddress() != 0) linkedAddresses[j++] = lremote.getRemoteAddress();
-    }
-    pref.remove("linkedAddr");
-    pref.putBytes("linkedAddr", linkedAddresses, sizeof(uint32_t) * SOMFY_MAX_LINKED_REMOTES);
-    pref.end();
-  }
-  #endif
   this->commit();
   this->publish();
   return true;
@@ -3872,54 +3623,6 @@ SomfyShade *SomfyShadeController::addShade() {
     shade->sortOrder = this->getMaxShadeOrder() + 1;
     LOG_DF("Sort order set to %d\n", shade->sortOrder);
     this->isDirty = true;
-    #ifdef USE_NVS
-    if(this->useNVS()) {
-      for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-        this->m_shadeIds[i] = this->shades[i].getShadeId();
-      }
-      sortArray<uint8_t>(this->m_shadeIds, sizeof(this->m_shadeIds));
-      uint8_t id = 0;
-      // This little diddy is about a bug I had previously that left duplicates in the
-      // sorted array.  So we will walk the sorted array until we hit a duplicate where the previous
-      // value == the current value.  Set it to 255 then sort the array again.
-      // 1,1,2,2,3,3,255...
-      bool hadDups = false;
-      for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-        if(this->m_shadeIds[i] == 255) break;
-        if(id == this->m_shadeIds[i]) {
-          id = this->m_shadeIds[i];
-          this->m_shadeIds[i] = 255;
-          hadDups = true;
-        }
-        else {
-          id = this->m_shadeIds[i];
-        }
-      }
-      if(hadDups) sortArray<uint8_t>(this->m_shadeIds, sizeof(this->m_shadeIds));
-      pref.begin("Shades");
-      pref.remove("shadeIds");
-      int x = pref.putBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-      LOG_DF("WROTE %d bytes to shadeIds\n", x);
-      pref.end();
-      for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-        if(i != 0) LOG_D(",");
-        else LOG_D("Shade Ids: ");
-        LOG_D(this->m_shadeIds[i]);
-      }
-      LOG_DLN();
-      pref.begin("Shades");
-      pref.getBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-      LOG_D("LENGTH:");
-      LOG_DLN(pref.getBytesLength("shadeIds"));
-      pref.end();
-      for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-        if(i != 0) LOG_D(",");
-        else LOG_D("Shade Ids: ");
-        LOG_D(this->m_shadeIds[i]);
-      }
-      LOG_DLN();
-    }
-    #endif
   }
   return shade;
 }
@@ -4154,22 +3857,6 @@ bool SomfyShadeController::deleteShade(uint8_t shadeId) {
       this->shades[i].clear();
     }
   }
-  #ifdef USE_NVS
-  if(this->useNVS()) {
-    for(uint8_t i = 0; i < sizeof(this->m_shadeIds) - 1; i++) {
-      if(this->m_shadeIds[i] == shadeId) {
-        this->m_shadeIds[i] = 255;
-      }
-    }
-    
-    //qsort(this->m_shadeIds, sizeof(this->m_shadeIds)/sizeof(this->m_shadeIds[0]), sizeof(this->m_shadeIds[0]), sort_asc);
-    sortArray<uint8_t>(this->m_shadeIds, sizeof(this->m_shadeIds));
-    
-    pref.begin("Shades");
-    pref.putBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-    pref.end();
-  }
-  #endif
   this->commit();
   return true;
 }

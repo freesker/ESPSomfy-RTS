@@ -294,9 +294,6 @@ class SomfyShade : public SomfyRemote {
     bool flipPosition = false;
     shade_types shadeType = shade_types::roller;
     tilt_types tiltType = tilt_types::none;
-    #ifdef USE_NVS
-    void load();
-    #endif
     float currentPos = 0.0f;
     float currentTiltPos = 0.0f;
     int8_t lastMovement = 0;
@@ -328,7 +325,6 @@ class SomfyShade : public SomfyRemote {
     void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1);
     void setTiltMovement(int8_t dir);
     void setMovement(int8_t dir);
-    void setTarget(float target);
     bool isAtTarget();
     bool isToggle();
     void moveToTarget(float pos, float tilt = -1.0f);
@@ -528,10 +524,8 @@ class Transceiver {
 };
 class SomfyShadeController {
   protected:
-    uint8_t m_shadeIds[SOMFY_MAX_SHADES];
     uint32_t lastCommit = 0;
   public:
-    bool useNVS();
     bool isDirty = false;
     bool configLoaded = false; // Faux tant qu'aucune configuration valide n'a été chargée : commit() refuse alors d'écraser le fichier.
     uint32_t startingAddress;
@@ -587,9 +581,6 @@ class SomfyShadeController {
     bool commit();
     bool writeBackup();
     bool loadShadesFile(const char *filename);
-    #ifdef USE_NVS
-    bool loadLegacy();
-    #endif
 };
 
 #endif
