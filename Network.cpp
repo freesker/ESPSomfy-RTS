@@ -64,7 +64,35 @@ conn_types_t Network::preferredConnType() {
       return settings.connType; 
   }
 }
+void Network::processPendingEvents() {
+  if(this->pendingEthConnected) {
+    this->pendingEthConnected = false;
+    // If the Wifi is connected then drop that connection
+    if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
+    LOG_I("Got Ethernet IP ");
+    LOG_ILN(ETH.localIP());
+    this->connectTime = millis();
+    this->connType = conn_types_t::ethernet;
+    if(settings.IP.dhcp) {
+      settings.IP.ip = ETH.localIP();
+      settings.IP.subnet = ETH.subnetMask();
+      settings.IP.gateway = ETH.gatewayIP();
+      settings.IP.dns1 = ETH.dnsIP(0);
+      settings.IP.dns2 = ETH.dnsIP(1);
+    }
+    this->setConnected(conn_types_t::ethernet);
+  }
+  if(this->pendingWifiConnected) {
+    this->pendingWifiConnected = false;
+    LOG_I("Got WiFi STA IP: ");
+    LOG_ILN(WiFi.localIP());
+    this->connType = conn_types_t::wifi;
+    this->connectTime = millis();
+    this->setConnected(conn_types_t::wifi);
+  }
+}
 void Network::loop() {
+  this->processPendingEvents();
   // ORDER OF OPERATIONS:
   // ----------------------------------------------
   // 1. If we are in the middle of a connection process we need to simply bail after the connect method.  The
@@ -635,28 +663,13 @@ void Network::networkEvent(WiFiEvent_t event) {
       break;
     case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE: LOG_DLN("(evt) Authentication mode of STA access point has changed"); break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-      LOG_I("(evt) Got WiFi STA IP: ");
-      LOG_ILN(WiFi.localIP());
-      net.connType = conn_types_t::wifi;
-      net.connectTime = millis();
-      net.setConnected(conn_types_t::wifi);
+      // setConnected() émet sur les sockets, redémarre SSDP et mDNS : à faire depuis loop(), pas
+      // depuis la tâche d'événements qui partage ces objets sans verrou.
+      net.pendingWifiConnected = true;
       break;
     case ARDUINO_EVENT_WIFI_STA_LOST_IP:        LOG_ILN("Lost IP address and IP address is reset to 0"); break;    
     case ARDUINO_EVENT_ETH_GOT_IP:
-      // If the Wifi is connected then drop that connection
-      if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
-      LOG_I("Got Ethernet IP ");
-      LOG_ILN(ETH.localIP());
-      net.connectTime = millis();
-      net.connType = conn_types_t::ethernet;
-      if(settings.IP.dhcp) {
-        settings.IP.ip = ETH.localIP();
-        settings.IP.subnet = ETH.subnetMask();
-        settings.IP.gateway = ETH.gatewayIP();
-        settings.IP.dns1 = ETH.dnsIP(0);
-        settings.IP.dns2 = ETH.dnsIP(1);
-      }     
-      net.setConnected(conn_types_t::ethernet);
+      net.pendingEthConnected = true;
       break;
     case ARDUINO_EVENT_ETH_CONNECTED:
       LOG_I("(evt) Ethernet Connected ");

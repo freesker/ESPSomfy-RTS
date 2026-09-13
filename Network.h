@@ -20,6 +20,10 @@ class Network {
     unsigned long lastWifiScan = 0;
     unsigned long apClientSince = 0;
     uint32_t ethRetryAt = 0;
+    // Posés par le gestionnaire d'événements Wi-Fi (tâche système), consommés par loop().
+    volatile bool pendingWifiConnected = false;
+    volatile bool pendingEthConnected = false;
+    void processPendingEvents();
     bool apClientStuck();
     bool ethStarted = false;
     bool wifiFallback = false;
