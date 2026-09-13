@@ -1097,8 +1097,6 @@ void Web::begin() {
   server.on("/", []() { webServer.handleStreamFile(server, "/index.html", _encoding_html); });
   server.on("/login", []() { webServer.handleLogin(server); });
   server.on("/loginContext", []() { webServer.handleLoginContext(server); });
-  server.on("/shades.cfg", []() { webServer.handleStreamFile(server, "/shades.cfg", _encoding_text); });
-  server.on("/shades.tmp", []() { webServer.handleStreamFile(server, "/shades.tmp", _encoding_text); });
   server.on("/getReleases", []() {
     if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
@@ -1138,31 +1136,39 @@ void Web::begin() {
     if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
     server.sendHeader("Connection", "close");
-    if(webServer.uploadSuccess) {
-      server.send(200, _encoding_json, "{\"status\":\"Success\",\"desc\":\"Restoring Shade settings\"}");
-      restore_options_t opts;
-      if(server.hasArg("data")) {
-        Serial.println(server.arg("data"));
-        StaticJsonDocument<256> doc;
-        DeserializationError err = deserializeJson(doc, server.arg("data"));
-        if (err) {
-          webServer.handleDeserializationError(server, err);
-          return;
-        }
-        else {
-          JsonObject obj = doc.as<JsonObject>();
-          opts.fromJSON(obj);
-        }
-      }
-      else {
-        Serial.println("No restore options sent.  Using defaults...");
-        opts.shades = true;
-      }
-      ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
-      Serial.println("Rebooting ESP for restored settings...");
-      rebootDelay.reboot = true;
-      rebootDelay.rebootTime = millis() + 1000;
+    if(!webServer.uploadSuccess) {
+      LittleFS.remove("/shades.tmp");
+      server.send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No backup file was uploaded\"}"));
+      return;
     }
+    restore_options_t opts;
+    if(server.hasArg("data")) {
+      StaticJsonDocument<256> doc;
+      DeserializationError err = deserializeJson(doc, server.arg("data"));
+      if (err) {
+        LittleFS.remove("/shades.tmp");
+        webServer.handleDeserializationError(server, err);
+        return;
+      }
+      JsonObject obj = doc.as<JsonObject>();
+      opts.fromJSON(obj);
+    }
+    else {
+      Serial.println("No restore options sent.  Using defaults...");
+      opts.shades = true;
+    }
+    // La restauration s'exécute avant la réponse : le client sait si elle a réussi et le fichier
+    // temporaire ne reste jamais sur le système de fichiers.
+    bool restored = ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
+    LittleFS.remove("/shades.tmp");
+    if(!restored) {
+      server.send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"The backup file is invalid or does not match this device\"}"));
+      return;
+    }
+    server.send(200, _encoding_json, F("{\"status\":\"Success\",\"desc\":\"Restoring Shade settings\"}"));
+    Serial.println("Rebooting ESP for restored settings...");
+    rebootDelay.reboot = true;
+    rebootDelay.rebootTime = millis() + 1000;
     }, []() {
       esp_task_wdt_reset();
       HTTPUpload& upload = server.upload();
