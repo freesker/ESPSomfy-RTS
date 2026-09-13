@@ -4261,6 +4261,50 @@ class MQTT {
     }
 }
 var mqtt = new MQTT();
+// SHA-256 (FIPS 180-4) pour vérifier l'intégrité des fichiers envoyés au boîtier : crypto.subtle
+// n'est pas disponible sur une origine http, donc l'implémentation est embarquée.
+function sha256Hex(buffer) {
+    const K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
+    const bytes = new Uint8Array(buffer);
+    const bitLen = bytes.length * 8;
+    const padLen = ((bytes.length + 9 + 63) >> 6) << 6;
+    const msg = new Uint8Array(padLen);
+    msg.set(bytes);
+    msg[bytes.length] = 0x80;
+    const dv = new DataView(msg.buffer);
+    dv.setUint32(padLen - 8, Math.floor(bitLen / 0x100000000));
+    dv.setUint32(padLen - 4, bitLen >>> 0);
+    let H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    const w = new Uint32Array(64);
+    const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+    for (let i = 0; i < padLen; i += 64) {
+        for (let t = 0; t < 16; t++) w[t] = dv.getUint32(i + t * 4);
+        for (let t = 16; t < 64; t++) {
+            const s0 = rotr(w[t - 15], 7) ^ rotr(w[t - 15], 18) ^ (w[t - 15] >>> 3);
+            const s1 = rotr(w[t - 2], 17) ^ rotr(w[t - 2], 19) ^ (w[t - 2] >>> 10);
+            w[t] = (w[t - 16] + s0 + w[t - 7] + s1) >>> 0;
+        }
+        let [a, b, c, d, e, f, g, h] = H;
+        for (let t = 0; t < 64; t++) {
+            const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+            const ch = (e & f) ^ (~e & g);
+            const t1 = (h + S1 + ch + K[t] + w[t]) >>> 0;
+            const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+            const maj = (a & b) ^ (a & c) ^ (b & c);
+            const t2 = (S0 + maj) >>> 0;
+            h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+        }
+        H = [(H[0] + a) >>> 0, (H[1] + b) >>> 0, (H[2] + c) >>> 0, (H[3] + d) >>> 0, (H[4] + e) >>> 0, (H[5] + f) >>> 0, (H[6] + g) >>> 0, (H[7] + h) >>> 0];
+    }
+    return H.map(x => x.toString(16).padStart(8, '0')).join('');
+}
 class Firmware {
     initialized = false;
     init() { this.initialized = true; }
@@ -4675,8 +4719,8 @@ class Firmware {
         let field = el.querySelector('input[type="file"]');
         let filename = field.value;
         console.log(filename);
+        let file = field.files[0];
         let formData = new FormData();
-        formData.append('file', field.files[0]);
         switch (service) {
             case '/updateApplication':
                 if (typeof filename !== 'string' || filename.length === 0) {
@@ -4737,12 +4781,14 @@ class Firmware {
                     ui.errorMessage(el, 'No restore options have been selected');
                     return;
                 }
-                console.log(data);
                 formData.append('data', JSON.stringify(data));
-                console.log(formData.get('data'));
-                //return;
                 break;
         }
+        // Les champs doivent précéder le fichier pour être lisibles par le boîtier à la fin du transfert.
+        if (service === '/updateFirmware' || service === '/updateApplication') {
+            formData.append('sha256', sha256Hex(await file.arrayBuffer()));
+        }
+        formData.append('file', file);
         let btnUpload = el.querySelector('button[id="btnUploadFile"]');
         let btnCancel = el.querySelector('button[id="btnClose"]');
         let btnBackup = el.querySelector('button[id="btnBackupCfg"]');
@@ -4756,6 +4802,7 @@ class Firmware {
         let xhr = new XMLHttpRequest();
         //xhr.open('POST', service, true);
         xhr.open('POST', baseUrl.length > 0 ? `${baseUrl}${service}` : service, true);
+        xhr.setRequestHeader('apikey', security.apiKey);
         xhr.upload.onprogress = function (evt) {
             let pct = evt.total ? Math.round((evt.loaded / evt.total) * 100) : 0;
             prog.style.setProperty('--progress', `${pct}%`);
@@ -4768,8 +4815,11 @@ class Firmware {
             ui.serviceError(el, err);
         };
         xhr.onload = function () {
-            console.log('File upload load called');
             btnCancel.innerText = 'Close';
+            if (xhr.status !== 200) {
+                ui.serviceError(el, xhr.responseText || xhr.status);
+                return;
+            }
             switch (service) {
                 case '/restore':
                     (async () => {

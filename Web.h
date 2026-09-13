@@ -1,4 +1,5 @@
 #include <WebServer.h>
+#include <mbedtls/sha256.h>
 #include "Somfy.h"
 #ifndef webserver_h
 #define webserver_h
@@ -6,6 +7,12 @@ class Web {
   public:
     bool uploadSuccess = false;
     bool uploadAuthorized = false;
+    bool uploadRejected = false;
+    mbedtls_sha256_context uploadDigest;
+    void beginUploadDigest();
+    void updateUploadDigest(const uint8_t *buf, size_t len);
+    bool verifyUploadDigest(WebServer &server);
+    bool beginFlashUpload(WebServer &server, int partition);
     void sendCORSHeaders(WebServer &server);
     void sendCacheHeaders(uint32_t seconds=604800);
     void startup();

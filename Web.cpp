@@ -139,6 +139,50 @@ void Web::handleLogout(WebServer &server) {
   server.sendHeader("Set-Cookie", "ESPSOMFYID=0");
   server.send(301);
 }
+// Intégrité des fichiers flashés par l'interface : le client envoie le SHA-256 du fichier dans le
+// champ "sha256" du formulaire (avant le fichier) et l'image n'est activée que s'il correspond.
+void Web::beginUploadDigest() {
+  mbedtls_sha256_init(&this->uploadDigest);
+  mbedtls_sha256_starts_ret(&this->uploadDigest, 0);
+}
+void Web::updateUploadDigest(const uint8_t *buf, size_t len) { mbedtls_sha256_update_ret(&this->uploadDigest, buf, len); }
+bool Web::verifyUploadDigest(WebServer &server) {
+  uint8_t digest[32];
+  char hex[65];
+  mbedtls_sha256_finish_ret(&this->uploadDigest, digest);
+  mbedtls_sha256_free(&this->uploadDigest);
+  for(size_t i = 0; i < sizeof(digest); i++) snprintf(&hex[i * 2], 3, "%02x", digest[i]);
+  if(!server.hasArg("sha256")) {
+    Serial.println("No sha256 supplied with upload, skipping integrity check");
+    return true;
+  }
+  String expected = server.arg("sha256");
+  expected.toLowerCase();
+  if(expected.compareTo(hex) == 0) return true;
+  Serial.printf("Upload integrity check failed: expected %s got %s\n", expected.c_str(), hex);
+  return false;
+}
+// Une seule opération de flashage à la fois : refuse si une mise à jour (OTA GitHub ou upload) est en cours.
+bool Web::beginFlashUpload(WebServer &server, int partition) {
+  this->uploadSuccess = false;
+  this->uploadRejected = false;
+  this->uploadAuthorized = this->hasValidToken(server, true);
+  if(!this->uploadAuthorized) return false;
+  if(Update.isRunning() || git.status == GIT_UPDATING || git.status == GIT_AWAITING_UPDATE) {
+    this->uploadRejected = true;
+    this->uploadAuthorized = false;
+    return false;
+  }
+  if(!Update.begin(UPDATE_SIZE_UNKNOWN, partition)) {
+    Update.printError(Serial);
+    this->uploadAuthorized = false;
+    return false;
+  }
+  somfy.transceiver.end(); // Shut down the radio so we do not get any interrupts during this process.
+  mqtt.end();
+  this->beginUploadDigest();
+  return true;
+}
 void Web::handleLogin(WebServer &server) {
     webServer.sendCORSHeaders(server);
     if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
@@ -2113,29 +2157,23 @@ void Web::begin() {
   server.on("/updateFirmware", HTTP_POST, []() {
     if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
-    if (Update.hasError())
-      server.send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Error updating firmware: \"}");
-    else
-      server.send(200, _encoding_json, "{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated firmware\"}");
+    if(webServer.uploadRejected) {
+      server.send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An update is already in progress\"}"));
+      return;
+    }
+    if(Update.hasError() || !webServer.uploadSuccess) {
+      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error updating firmware\"}"));
+      return;
+    }
+    server.send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated firmware\"}"));
     rebootDelay.reboot = true;
     rebootDelay.rebootTime = millis() + 500;
     }, []() {
       HTTPUpload& upload = server.upload();
       if(upload.status != UPLOAD_FILE_START && !webServer.uploadAuthorized) return;
       if (upload.status == UPLOAD_FILE_START) {
-        webServer.uploadAuthorized = webServer.hasValidToken(server, true);
-        if(!webServer.uploadAuthorized) return;
-        webServer.uploadSuccess = false;
         Serial.printf("Update: %s - %d\n", upload.filename.c_str(), upload.totalSize);
-        //if(!Update.begin(upload.totalSize, U_SPIFFS)) {
-        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { //start with max available size
-          Update.printError(Serial);
-        }
-        else {
-          somfy.transceiver.end(); // Shut down the radio so we do not get any interrupts during this process.
-          mqtt.end();
-        }
+        webServer.beginFlashUpload(server, U_FLASH);
       }
       else if(upload.status == UPLOAD_FILE_ABORTED) {
         Serial.printf("Upload of %s aborted\n", upload.filename.c_str());
@@ -2148,9 +2186,11 @@ void Web::begin() {
           Serial.printf("Upload of %s aborted invalid size %d\n", upload.filename.c_str(), upload.currentSize);
           Update.abort();
         }
+        else webServer.updateUploadDigest(upload.buf, upload.currentSize);
       }
       else if (upload.status == UPLOAD_FILE_END) {
-        if (Update.end(true)) { //true to set the size to the current progress
+        if(!webServer.verifyUploadDigest(server)) Update.abort();
+        else if (Update.end(true)) { //true to set the size to the current progress
           Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
           webServer.uploadSuccess = true;
         }
@@ -2162,63 +2202,65 @@ void Web::begin() {
     });
   server.on("/updateShadeConfig", HTTP_POST, []() {
     if(!webServer.isAuthenticated(server, true)) return;
+    webServer.sendCORSHeaders(server);
+    server.sendHeader("Connection", "close");
+    LittleFS.remove("/shades.tmp");
     if(git.lockFS) {
       server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Filesystem update in progress\"}"));
       return;
     }
-    webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
-    server.sendHeader("Connection", "close");
-    server.send(200, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Updating Shade Config: \"}");
+    if(!webServer.uploadSuccess) {
+      server.send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Invalid shade configuration file\"}"));
+      return;
+    }
+    server.send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Shade configuration loaded\"}"));
     }, []() {
       HTTPUpload& upload = server.upload();
       if(upload.status != UPLOAD_FILE_START && !webServer.uploadAuthorized) return;
       if (upload.status == UPLOAD_FILE_START) {
-        webServer.uploadAuthorized = webServer.hasValidToken(server, true);
+        webServer.uploadSuccess = false;
+        webServer.uploadAuthorized = webServer.hasValidToken(server, true) && !git.lockFS;
         if(!webServer.uploadAuthorized) return;
         Serial.printf("Update: shades.cfg\n");
         File fup = LittleFS.open("/shades.tmp", "w");
         fup.close();
       }
       else if (upload.status == UPLOAD_FILE_WRITE) {
-        /* flashing littlefs to ESP*/
-        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-          File fup = LittleFS.open("/shades.tmp", "a");
+        File fup = LittleFS.open("/shades.tmp", "a");
+        if(fup) {
           fup.write(upload.buf, upload.currentSize);
           fup.close();
         }
       }
       else if (upload.status == UPLOAD_FILE_END) {
-        somfy.loadShadesFile("/shades.tmp");
+        // Le fichier n'est chargé que s'il est valide, puis persisté pour que shades.cfg reflète l'état en mémoire.
+        if(somfy.loadShadesFile("/shades.tmp")) {
+          somfy.commit();
+          webServer.uploadSuccess = true;
+        }
       }
     });
   server.on("/updateApplication", HTTP_POST, []() {
     if(!webServer.isAuthenticated(server, true)) return;
     webServer.sendCORSHeaders(server);
-    if(server.method() == HTTP_OPTIONS) { server.send(200, "OK"); return; }
     server.sendHeader("Connection", "close");
-    if (Update.hasError())
-      server.send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Error updating application: \"}");
-    else
-      server.send(200, _encoding_json, "{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated application\"}");
+    if(webServer.uploadRejected) {
+      server.send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An update is already in progress\"}"));
+      return;
+    }
+    if(Update.hasError() || !webServer.uploadSuccess) {
+      server.send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error updating application\"}"));
+      return;
+    }
+    server.send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated application\"}"));
     rebootDelay.reboot = true;
     rebootDelay.rebootTime = millis() + 500;
     }, []() {
       HTTPUpload& upload = server.upload();
       if(upload.status != UPLOAD_FILE_START && !webServer.uploadAuthorized) return;
       if (upload.status == UPLOAD_FILE_START) {
-        webServer.uploadAuthorized = webServer.hasValidToken(server, true);
-        if(!webServer.uploadAuthorized) return;
-        webServer.uploadSuccess = false;
         Serial.printf("Update: %s %d\n", upload.filename.c_str(), upload.totalSize);
-        //if(!Update.begin(upload.totalSize, U_SPIFFS)) {
-        if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS)) { //start with max available size and tell it we are updating the file system.
-          Update.printError(Serial);
-        }
-        else {
-          somfy.transceiver.end(); // Shut down the radio so we do not get any interrupts during this process.
-          mqtt.end();
-        }
+        webServer.beginFlashUpload(server, U_SPIFFS);
       }
       else if(upload.status == UPLOAD_FILE_ABORTED) {
         Serial.printf("Upload of %s aborted\n", upload.filename.c_str());
@@ -2232,9 +2274,14 @@ void Web::begin() {
           Serial.printf("Upload of %s aborted invalid size %d\n", upload.filename.c_str(), upload.currentSize);
           Update.abort();
         }
+        else webServer.updateUploadDigest(upload.buf, upload.currentSize);
       }
       else if (upload.status == UPLOAD_FILE_END) {
-        if (Update.end(true)) { //true to set the size to the current progress
+        if(!webServer.verifyUploadDigest(server)) {
+          Update.abort();
+          somfy.commit();
+        }
+        else if (Update.end(true)) { //true to set the size to the current progress
           webServer.uploadSuccess = true;
           Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
           somfy.commit();
