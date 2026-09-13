@@ -54,10 +54,10 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   LOG_ILN();
 
   // We need to start at the last slash in the data
-  uint8_t len = strlen(topic);
-  
+  size_t len = strlen(topic);
+  if(len == 0) return;
   uint8_t slashes = 0;
-  uint16_t ndx = strlen(topic) - 1;
+  size_t ndx = len - 1;
   while(ndx > 0) {
     if(topic[ndx] == '/') slashes++;
     if(slashes == 4) break;
@@ -74,7 +74,7 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   uint8_t i = 0;
   while(topic[ndx] == '/' && ndx < len) ndx++;
   while(ndx < len) {
-    if(topic[ndx] != '/' && i < sizeof(entityType))
+    if(topic[ndx] != '/' && i < sizeof(entityType) - 1)
       entityType[i++] = topic[ndx];
     ndx++;
     if(topic[ndx] == '/') break;
@@ -82,7 +82,7 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   i = 0;
   while(topic[ndx] == '/' && ndx < len) ndx++;
   while(ndx < len) {
-    if(topic[ndx] != '/' && i < sizeof(entityId))
+    if(topic[ndx] != '/' && i < sizeof(entityId) - 1)
       entityId[i++] = topic[ndx];
     ndx++;
     if(topic[ndx] == '/') break;
@@ -90,12 +90,12 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   i = 0;
   while(topic[ndx] == '/' && ndx < len) ndx++;
   while(ndx < len) {
-    if(topic[ndx] != '/' && i < sizeof(command))
+    if(topic[ndx] != '/' && i < sizeof(command) - 1)
       command[i++] = topic[ndx];
     ndx++;
     if(topic[ndx] == '/') break;
   }
-  for(uint8_t j = 0; j < length && j < sizeof(value); j++)
+  for(uint32_t j = 0; j < length && j < sizeof(value) - 1; j++)
     value[j] = payload[j];
   
   LOG_I("MQTT type:[");

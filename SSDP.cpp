@@ -266,7 +266,7 @@ void SSDPClass::_parsePacket(ssdp_packet_t *pkt, AsyncUDPPacket &p) {
         break;
       }
       else {
-        if(pos < SSDP_BUFFER_SIZE) {
+        if(pos < SSDP_BUFFER_SIZE - 1) {
           buffer[pos++] = c;
           buffer[pos] = '\0';
         }
