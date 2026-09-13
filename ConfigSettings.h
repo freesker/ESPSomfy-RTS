@@ -141,7 +141,9 @@ class SecuritySettings: BaseSettings {
     char username[33] = "";
     char password[33] = "";
     char pin[5] = "";
+    char secret[65] = ""; // Clé HMAC aléatoire des jetons d'API, générée au premier démarrage.
     uint8_t permissions = 0;
+    void ensureSecret();
     bool begin();
     bool save();
     bool load();

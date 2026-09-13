@@ -558,9 +558,23 @@ bool SecuritySettings::save() {
   pref.putString("username", this->username);
   pref.putString("password", this->password);
   pref.putString("pin", this->pin);
+  pref.putString("secret", this->secret);
   pref.putChar("permissions", this->permissions);
   pref.end();
   return true;
+}
+// Le jeton d'API est un HMAC dont la clé doit rester inconnue des clients : un secret de 256 bits
+// tiré au premier démarrage et conservé en NVS, jamais dérivé d'une valeur publique comme le serverId.
+void SecuritySettings::ensureSecret() {
+  if(strlen(this->secret) == 64) return;
+  for(uint8_t i = 0; i < 8; i++) {
+    uint32_t r = esp_random();
+    snprintf(&this->secret[i * 8], 9, "%08lx", (unsigned long)r);
+  }
+  this->secret[64] = '\0';
+  pref.begin("SEC");
+  pref.putString("secret", this->secret);
+  pref.end();
 }
 bool SecuritySettings::load() {
   pref.begin("SEC");
@@ -568,8 +582,10 @@ bool SecuritySettings::load() {
   if(pref.isKey("username")) pref.getString("username", this->username, sizeof(this->username));
   if(pref.isKey("password")) pref.getString("password", this->password, sizeof(this->password));
   if(pref.isKey("pin")) pref.getString("pin", this->pin, sizeof(this->pin));
+  if(pref.isKey("secret")) pref.getString("secret", this->secret, sizeof(this->secret));
   if(pref.isKey("permissions")) this->permissions = pref.getChar("permissions", this->permissions);
   pref.end();
+  this->ensureSecret();
   return true;
 }
 void SecuritySettings::print() {

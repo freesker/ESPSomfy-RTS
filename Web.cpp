@@ -76,6 +76,8 @@ void Web::handleDeserializationError(WebServer &server, DeserializationError &er
       break;
     }
 }
+#define LOGIN_MAX_FAILURES 5
+#define LOGIN_LOCK_MS 60000UL
 static bool constantTimeEquals(const char *a, const char *b) {
   size_t la = strlen(a), lb = strlen(b);
   uint8_t diff = (uint8_t)(la != lb);
@@ -118,7 +120,8 @@ bool Web::createAPIToken(const char *payload, char *token) {
     byte hmacResult[32];
     const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
     token[0] = '\0';
-    if(mbedtls_md_hmac(info, (const unsigned char *)settings.serverId, strlen(settings.serverId), (const unsigned char *)payload, strlen(payload), hmacResult) != 0) return false;
+    const char *key = strlen(settings.Security.secret) > 0 ? settings.Security.secret : settings.serverId;
+    if(mbedtls_md_hmac(info, (const unsigned char *)key, strlen(key), (const unsigned char *)payload, strlen(payload), hmacResult) != 0) return false;
     for(size_t i = 0; i < sizeof(hmacResult); i++) snprintf(&token[i * 2], 3, "%02x", hmacResult[i]);
     return true;
 }
@@ -153,7 +156,19 @@ void Web::handleLogin(WebServer &server) {
       server.send(200, _encoding_json, g_content);
       return;
     }
-    Serial.println("Web logging in...");
+    // Limitation des tentatives : après LOGIN_MAX_FAILURES échecs, /login est verrouillé LOGIN_LOCK_MS.
+    static uint8_t loginFailures = 0;
+    static uint32_t loginLockUntil = 0;
+    if(loginFailures >= LOGIN_MAX_FAILURES) {
+      if((int32_t)(millis() - loginLockUntil) < 0) {
+        obj["success"] = false;
+        obj["msg"] = "Too many failed attempts, try again later";
+        serializeJson(doc, g_content);
+        server.send(429, _encoding_json, g_content);
+        return;
+      }
+      loginFailures = 0;
+    }
     char username[33] = "";
     char password[33] = "";
     char pin[5] = "";
@@ -181,7 +196,7 @@ void Web::handleLogin(WebServer &server) {
     }
     // At this point we should have all the data we need to login.
     if(settings.Security.type == security_types::PinEntry) {
-      if(strlen(pin) == 0 || strcmp(pin, settings.Security.pin) != 0) {
+      if(strlen(pin) == 0 || !constantTimeEquals(pin, settings.Security.pin)) {
         obj["success"] = false;
         obj["msg"] = "Invalid Pin Entry";
       }
@@ -192,7 +207,7 @@ void Web::handleLogin(WebServer &server) {
       }
     }
     else if(settings.Security.type == security_types::Password) {
-      if(strlen(username) == 0 || strlen(password) == 0 || strcmp(username, settings.Security.username) != 0 || strcmp(password, settings.Security.password) != 0) {
+      if(strlen(username) == 0 || strlen(password) == 0 || !constantTimeEquals(username, settings.Security.username) || !constantTimeEquals(password, settings.Security.password)) {
         obj["success"] = false;
         obj["msg"] = "Invalid username or password";
       }
@@ -202,6 +217,8 @@ void Web::handleLogin(WebServer &server) {
         obj["apiKey"] = token;
       }
     }
+    if(obj["success"].as<bool>()) loginFailures = 0;
+    else if(++loginFailures >= LOGIN_MAX_FAILURES) loginLockUntil = millis() + LOGIN_LOCK_MS;
     serializeJson(doc, g_content);
     server.send(200, _encoding_json, g_content);
     return;
