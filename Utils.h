@@ -44,6 +44,21 @@ static void _rtrim(char *str) {
   while(e >= 0 && (str[e] == ' ' || str[e] == '\n' || str[e] == '\r' || str[e] == '\t' || str[e] == '"')) {str[e] = '\0'; e--;}
 }
 [[maybe_unused]] static void _trim(char *str) { _ltrim(str); _rtrim(str); }
+// Copie un nom saisi par l'utilisateur (pièce, volet, groupe) en retirant ce qui casserait le fichier
+// de configuration (virgule, guillemet, retour à la ligne) ou permettrait une injection HTML dans
+// l'interface (< > & ' \). Les caractères de contrôle sont ignorés.
+[[maybe_unused]] static void sanitizeName(char *dest, const char *src, size_t size) {
+  size_t j = 0;
+  if(src) {
+    for(size_t i = 0; src[i] != '\0' && j < size - 1; i++) {
+      unsigned char c = (unsigned char)src[i];
+      if(c < 0x20 || c == 0x7F || strchr("<>&\"',\\", c)) continue;
+      dest[j++] = (char)c;
+    }
+  }
+  dest[j] = '\0';
+  _trim(dest);
+}
 struct rebootDelay_t {
   bool reboot = false;
   int rebootTime = 0;

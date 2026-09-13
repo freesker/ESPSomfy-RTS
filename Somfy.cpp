@@ -3216,7 +3216,7 @@ int8_t SomfyShade::validateJSON(JsonObject &obj) {
 int8_t SomfyShade::fromJSON(JsonObject &obj) {
   int8_t err = this->validateJSON(obj);
   if(err == 0) {
-    if(obj.containsKey("name")) strlcpy(this->name, obj["name"], sizeof(this->name));
+    if(obj["name"].is<const char*>()) sanitizeName(this->name, obj["name"].as<const char*>(), sizeof(this->name));
     if(obj.containsKey("roomId")) this->roomId = obj["roomId"];
     if(obj.containsKey("upTime")) this->upTime = obj["upTime"];
     if(obj.containsKey("downTime")) this->downTime = obj["downTime"];
@@ -3431,7 +3431,7 @@ bool SomfyShade::toJSON(JsonObject &obj) {
 }
 */
 bool SomfyRoom::fromJSON(JsonObject &obj) {
-  if(obj.containsKey("name")) strlcpy(this->name, obj["name"], sizeof(this->name));
+  if(obj["name"].is<const char*>()) sanitizeName(this->name, obj["name"].as<const char*>(), sizeof(this->name));
   if(obj.containsKey("sortOrder")) this->sortOrder = obj["sortOrder"];
   return true;
 }
@@ -3450,7 +3450,7 @@ void SomfyRoom::toJSON(JsonResponse &json) {
 }
 
 bool SomfyGroup::fromJSON(JsonObject &obj) {
-  if(obj.containsKey("name")) strlcpy(this->name, obj["name"], sizeof(this->name));
+  if(obj["name"].is<const char*>()) sanitizeName(this->name, obj["name"].as<const char*>(), sizeof(this->name));
   if(obj.containsKey("roomId")) this->roomId = obj["roomId"];
   if(obj.containsKey("remoteAddress")) this->setRemoteAddress(obj["remoteAddress"]);
   if(obj.containsKey("bitLength")) this->bitLength = obj["bitLength"];

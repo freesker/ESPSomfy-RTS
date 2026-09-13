@@ -638,6 +638,11 @@ async function init() {
     mqtt.init();
     firmware.init();
 }
+// Échappe une valeur venue de l'appareil (nom de volet, SSID, message) avant insertion dans du HTML.
+function esc(val) {
+    if (val === null || typeof val === 'undefined') return '';
+    return String(val).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 class UIBinder {
     setValue(el, val) {
         if (el instanceof HTMLInputElement) {
@@ -953,7 +958,7 @@ class UIBinder {
         console.log(err);
         let div = this.errorMessage(`${err.htmlError || 500}:${title}`);
         let sub = div.querySelector('.sub-message');
-        sub.innerHTML = `<div><label>Service:</label>${err.service}</div><div style="font-size:22px;">${msg}</div>`;
+        sub.innerHTML = `<div><label>Service:</label>${esc(err.service)}</div><div style="font-size:22px;">${esc(msg)}</div>`;
         return div;
     }
     socketError(el, msg) {
@@ -1259,7 +1264,7 @@ class Security {
                     document.getElementById('divContainer').dispatchEvent(evt);
                 }
                 else
-                    msg.innerHTML = log.msg;
+                    msg.textContent = log.msg;
             }
         });
     }
@@ -1685,7 +1690,7 @@ class Wifi {
                 ui.toElement(document.getElementById('divDHCP'), settings);
                 document.getElementById('divETHSettings').style.display = settings.ethernet.boardType === 0 ? '' : 'none';
                 document.getElementById('divStaticIP').style.display = settings.ip.dhcp ? 'none' : '';
-                document.getElementById('spanCurrentIP').innerHTML = settings.ip.ip;
+                document.getElementById('spanCurrentIP').textContent = settings.ip.ip;
                 this.useEthernetClicked();
                 this.hiddenSSIDClicked();
             }
@@ -1740,7 +1745,7 @@ class Wifi {
         nets.sort((a, b) => b.strength - a.strength);
         for (let i = 0; i < nets.length; i++) {
             let ap = nets[i];
-            div += `<div class="wifiSignal" onclick="wifi.selectSSID(this);" data-channel="${ap.channel}" data-encryption="${ap.encryption}" data-strength="${ap.strength}" data-mac="${ap.macAddress}"><span class="ssid">${ap.name}</span><span class="strength">${this.displaySignal(ap.strength)}</span></div>`;
+            div += `<div class="wifiSignal" onclick="wifi.selectSSID(this);" data-channel="${esc(ap.channel)}" data-encryption="${esc(ap.encryption)}" data-strength="${esc(ap.strength)}" data-mac="${esc(ap.macAddress)}"><span class="ssid">${esc(ap.name)}</span><span class="strength">${this.displaySignal(ap.strength)}</span></div>`;
         }
         let divAps = document.getElementById('divAps');
         divAps.setAttribute('data-lastloaded', new Date().getTime());
@@ -1892,7 +1897,7 @@ class Wifi {
     procWifiStrength(strength) {
         //console.log(strength);
         let ssid = strength.ssid || strength.name;
-        document.getElementById('spanNetworkSSID').innerHTML = !ssid || ssid === '' ? '-------------' : ssid;
+        document.getElementById('spanNetworkSSID').textContent = !ssid || ssid === '' ? '-------------' : ssid;
         document.getElementById('spanNetworkChannel').innerHTML = isNaN(strength.channel) || strength.channel < 0 ? '--' : strength.channel;
         let cssClass = 'waveStrength-' + (isNaN(strength.strength) || strength > 0 ? -100 : this.calcWaveStrength(strength.strength));
         let elWave = document.getElementById('divNetworkStrength').children[0];
@@ -2162,7 +2167,7 @@ class Somfy {
         let room = _rooms.find(x => x.roomId === roomId) || { roomId: 0, name: '' };
         let rs = document.getElementById('divRoomSelector');
         rs.setAttribute('data-roomid', roomId);
-        rs.querySelector('span').innerHTML = room.name;
+        rs.querySelector('span').textContent = room.name;
         document.getElementById('divRoomSelector-list').style.display = 'none';
         let ss = document.getElementById('divShadeControls');
         ss.setAttribute('data-roomid', roomId);
@@ -2194,10 +2199,10 @@ class Somfy {
             let room = rooms[i];
             divCfg += `<div class="somfyRoom room-draggable" draggable="true" data-roomid="${room.roomId}">`;
             divCfg += `<div class="button-outline" onclick="somfy.openEditRoom(${room.roomId});"><i class="icss-edit"></i></div>`;
-            divCfg += `<span class="room-name">${room.name}</span>`;
+            divCfg += `<span class="room-name">${esc(room.name)}</span>`;
             divCfg += `<div class="button-outline" onclick="somfy.deleteRoom(${room.roomId});"><i class="icss-trash"></i></div>`;
             divCfg += '</div>';
-            divOpts += `<option value="${room.roomId}">${room.name}</option>`;
+            divOpts += `<option value="${room.roomId}">${esc(room.name)}</option>`;
             _rooms.push(room);
             divCtl += `<div class='room-row' data-roomid="${room.roomId}" onclick="somfy.selectRoom(${room.roomId});event.stopPropagation();">${room.name}</div>`;
         }
@@ -2267,8 +2272,8 @@ class Somfy {
             //divCfg += `<i class="shade-icon" data-position="${shade.position || 0}%"></i>`;
             //divCfg += `<span class="shade-name">${shade.name}</span>`;
             divCfg += '<div class="shade-name">';
-            divCfg += `<div class="cfg-room">${room.name}</div>`;
-            divCfg += `<div class="">${shade.name}</div>`;
+            divCfg += `<div class="cfg-room">${esc(room.name)}</div>`;
+            divCfg += `<div class="">${esc(shade.name)}</div>`;
             divCfg += '</div>'
 
             divCfg += `<span class="shade-address">${shade.remoteAddress}</span>`;
@@ -2288,8 +2293,8 @@ class Somfy {
             divCtl += shade.tiltType !== 0 ? `<i class="icss-window-tilt" data-shadeid="${shade.shadeId}" data-tiltposition="${shade.tiltPosition}"></i></div>` : '</div>';
             divCtl += `<div class="indicator indicator-wind"><i class="icss-warning"></i></div><div class="indicator indicator-sun"><i class="icss-sun"></i></div>`;
             divCtl += `<div class="shade-name">`;
-            divCtl += `<span class="shadectl-room">${room.name}</span>`;
-            divCtl += `<span class="shadectl-name">${shade.name}</span>`;
+            divCtl += `<span class="shadectl-room">${esc(room.name)}</span>`;
+            divCtl += `<span class="shadectl-name">${esc(shade.name)}</span>`;
             divCtl += `<span class="shadectl-mypos"><label class="my-pos"></label><span class="my-pos">${shade.myPos === -1 ? '---' : shade.myPos + '%'}</span><label class="my-pos-tilt"></label><span class="my-pos-tilt">${shade.myTiltPos === -1 ? '---' : shade.myTiltPos + '%'}</span >`;
             divCtl += '</div>';
             divCtl += `<div class="shadectl-buttons" data-shadeType="${shade.shadeType}">`;
@@ -2302,7 +2307,7 @@ class Somfy {
             divCtl += '</div></div>';
             divCtl += '</div>';
             let opt = document.createElement('option');
-            opt.innerHTML = shade.name;
+            opt.textContent = shade.name;
             opt.setAttribute('data-address', shade.remoteAddress);
             opt.setAttribute('data-type', 'shade');
             opt.setAttribute('data-shadetype', shade.shadeType);
@@ -2585,8 +2590,8 @@ class Somfy {
                 divCfg += `<div class="button-outline" onclick="somfy.openEditGroup(${group.groupId});"><i class="icss-edit"></i></div>`;
                 //divCfg += `<i class="Group-icon" data-position="${Group.position || 0}%"></i>`;
                 divCfg += '<div class="group-name">';
-                divCfg += `<div class="cfg-room">${room.name}</div>`;
-                divCfg += `<div class="">${group.name}</div>`;
+                divCfg += `<div class="cfg-room">${esc(room.name)}</div>`;
+                divCfg += `<div class="">${esc(group.name)}</div>`;
                 divCfg += '</div>'
                 divCfg += `<span class="group-address">${group.remoteAddress}</span>`;
                 divCfg += `<div class="button-outline" onclick="somfy.deleteGroup(${group.groupId});"><i class="icss-trash"></i></div>`;
@@ -2594,8 +2599,8 @@ class Somfy {
 
                 divCtl += `<div class="somfyGroupCtl" style="${roomId === 0 || roomId === room.roomId ? '' : 'display:none'}" data-groupId="${group.groupId}" data-roomid="${group.roomId}" data-remoteaddress="${group.remoteAddress}">`;
                 divCtl += `<div class="group-name">`;
-                divCtl += `<span class="groupctl-room">${room.name}</span>`;
-                divCtl += `<span class="groupctl-name">${group.name}</span>`;
+                divCtl += `<span class="groupctl-room">${esc(room.name)}</span>`;
+                divCtl += `<span class="groupctl-name">${esc(group.name)}</span>`;
                 divCtl += `<div class="groupctl-shades">`;
                 if (typeof group.linkedShades !== 'undefined') {
                     divCtl += `<label>Members:</label><span>${group.linkedShades.length}`;
@@ -2616,7 +2621,7 @@ class Somfy {
                 divCtl += `<div class="button-outline cmd-button" data-cmd="down" data-groupid="${group.groupId}"><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>`;
                 divCtl += '</div></div>';
                 let opt = document.createElement('option');
-                opt.innerHTML = group.name;
+                opt.textContent = group.name;
                 opt.setAttribute('data-address', group.remoteAddress);
                 opt.setAttribute('data-type', 'group');
                 opt.setAttribute('data-groupid', group.groupId);
@@ -2779,7 +2784,7 @@ class Somfy {
         for (let i = 0; i < group.linkedShades.length; i++) {
             let shade = group.linkedShades[i];
             divCfg += `<div class="linked-shade" data-shadeid="${shade.shadeId}" data-remoteaddress="${shade.remoteAddress}">`;
-            divCfg += `<span class="linkedshade-name">${shade.name}</span>`;
+            divCfg += `<span class="linkedshade-name">${esc(shade.name)}</span>`;
             divCfg += `<span class="linkedshade-address">${shade.remoteAddress}</span>`;
             divCfg += `<div class="button-outline" onclick="somfy.unlinkGroupShade(${group.groupId}, ${shade.shadeId});"><i class="icss-trash"></i></div>`;
             divCfg += '</div>';
@@ -2904,7 +2909,7 @@ class Somfy {
                 proto = '-V';
                 break;
         }
-        let html = `<span>${frame.encKey}</span><span>${frame.address}</span><span>${frame.command}<sup>${frame.stepSize ? frame.stepSize : ''}</sup></span><span>${frame.rcode}</span><span>${frame.rssi}dBm</span><span>${frame.bits}${proto}</span><span>${fnFmtTime(frame.time)}</span><div class="frame-pulses">`;
+        let html = `<span>${esc(frame.encKey)}</span><span>${esc(frame.address)}</span><span>${esc(frame.command)}<sup>${frame.stepSize ? esc(frame.stepSize) : ''}</sup></span><span>${esc(frame.rcode)}</span><span>${frame.rssi}dBm</span><span>${frame.bits}${proto}</span><span>${fnFmtTime(frame.time)}</span><div class="frame-pulses">`;
         for (let i = 0; i < frame.pulses.length; i++) {
             if (i !== 0) html += ',';
             html += `${frame.pulses[i]}`;
@@ -3442,7 +3447,7 @@ class Somfy {
                             prompt.remove;
                         });
                     });
-                    prompt.querySelector('.sub-message').innerHTML = `<p>If this shade was previously paired with a motor, you should first unpair it from the motor and remove it from any groups.  Otherwise its address will remain in the motor memory.</p><p>Press YES to delete ${shade.name} or NO to cancel this operation.</p>`;
+                    prompt.querySelector('.sub-message').innerHTML = `<p>If this shade was previously paired with a motor, you should first unpair it from the motor and remove it from any groups.  Otherwise its address will remain in the motor memory.</p><p>Press YES to delete ${esc(shade.name)} or NO to cancel this operation.</p>`;
                 }
             });
         }
@@ -3469,7 +3474,7 @@ class Somfy {
                             });
 
                         });
-                        prompt.querySelector('.sub-message').innerHTML = `<p>Press YES to delete the ${group.name} group or NO to cancel this operation.</p>`;
+                        prompt.querySelector('.sub-message').innerHTML = `<p>Press YES to delete the ${esc(group.name)} group or NO to cancel this operation.</p>`;
                         
                     }
                 }
@@ -3980,13 +3985,13 @@ class Somfy {
                     // Add in all the available shades.
                     let selAvail = div.querySelector('#selAvailShades');
                     let grpName = div.querySelector('#divGroupName');
-                    if (grpName) grpName.innerHTML = options.name;
+                    if (grpName) grpName.textContent = options.name;
                     for (let i = 0; i < options.availShades.length; i++) {
                         let shade = options.availShades[i];
                         selAvail.options.add(new Option(shade.name, shade.shadeId));
                     }
                     let divWizShadeName = div.querySelector('#divWizShadeName');
-                    if (divWizShadeName) divWizShadeName.innerHTML = options.availShades[0].name;
+                    if (divWizShadeName) divWizShadeName.textContent = options.availShades[0].name;
                 }
                 else {
                     div.remove();
@@ -4076,9 +4081,9 @@ class Somfy {
                 if (typeof shade !== 'undefined') {
                     // Add in all the available shades.
                     let grpName = div.querySelector('#divGroupName');
-                    if (grpName) grpName.innerHTML = group.name;
+                    if (grpName) grpName.textContent = group.name;
                     let divWizShadeName = div.querySelector('#divWizShadeName');
-                    if (divWizShadeName) divWizShadeName.innerHTML = shade.name;
+                    if (divWizShadeName) divWizShadeName.textContent = shade.name;
                 }
                 else {
                     div.remove();
@@ -4429,7 +4434,7 @@ class Firmware {
         let div = document.getElementById('divFirmwareUpdate');
         if (rel.available && rel.status === 0 && rel.checkForUpdate !== false) {
             div.style.color = 'black';
-            div.innerHTML = `<span>Firmware ${rel.fwVersion.name} Installed<span><span style="color:red"> ${rel.latest.name} Available</span>`;
+            div.innerHTML = `<span>Firmware ${esc(rel.fwVersion.name)} Installed<span><span style="color:red"> ${esc(rel.latest.name)} Available</span>`;
         }
         else {
             switch (rel.status) {
@@ -4448,7 +4453,7 @@ class Firmware {
                             inst.remove();
                             ui.errorMessage(e.desc);
                         }
-                        div.innerHTML = e.desc;
+                        div.textContent = e.desc;
                     }
                     else {
                         div.innerHTML = `Firmware update complete`;
@@ -4467,7 +4472,7 @@ class Firmware {
 
                 default:
                     div.style.color = 'black';
-                    div.innerHTML = `Firmware ${rel.fwVersion.name} Installed`;
+                    div.innerHTML = `Firmware ${esc(rel.fwVersion.name)} Installed`;
                     break;
             }
         }
@@ -4479,7 +4484,7 @@ class Firmware {
         let div = document.getElementById('divFirmwareUpdate');
         if (div) {
             div.style.color = 'red';
-            div.innerHTML = `Updating ${file} to ${prog.ver} ${pct}%`;
+            div.innerHTML = `Updating ${esc(file)} to ${esc(prog.ver)} ${pct}%`;
         }
         general.reloadApp = true;
         let git = document.getElementById('divGitInstall');
@@ -4519,7 +4524,7 @@ class Firmware {
             else {
                 general.reloadApp = true;
                 // Change the display and allow the percentage to be shown when the socket emits the progress.
-                let html = `<div>Installing ${ver.name}</div><div style="font-size:.7em;margin-top:4px;">Please wait as the files are downloaded and installed.  Once the application update process starts you may no longer cancel the update as this will corrupt the downloaded files.</div>`;
+                let html = `<div>Installing ${esc(ver.name)}</div><div style="font-size:.7em;margin-top:4px;">Please wait as the files are downloaded and installed.  Once the application update process starts you may no longer cancel the update as this will corrupt the downloaded files.</div>`;
                 html += `<div class="progress-bar" id="progFirmwareDownload" style="--progress:0%;margin-top:10px;text-align:center;"></div>`;
                 html += `<label for="progFirmwareDownload" style="font-size:10pt;">Firmware Install Progress</label>`;
                 html += `<div class="progress-bar" id="progApplicationDownload" style="--progress:0%;margin-top:10px;text-align:center;"></div>`;
