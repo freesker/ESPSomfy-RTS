@@ -64,6 +64,7 @@ class JsonResponse : public JsonFormatter {
 class JsonSockEvent : public JsonFormatter {
   protected:
     bool _closed = false;
+    bool _overflow = false;
     void _safecat(const char *val, bool escape = false) override;
   public:
     WebSocketsServer *server = nullptr;
