@@ -4039,7 +4039,8 @@ void SomfyRemote::repeatFrame(uint8_t repeat) {
   somfy.transceiver.sendFrame(frm, this->bitLength == 56 ? 2 : 12, this->bitLength);
   for(uint8_t i = 0; i < repeat; i++) {
     this->lastFrame.repeats++;
-    if(this->lastFrame.bitLength == 80) this->lastFrame.encode80BitFrame(&frm[0], this->lastFrame.repeats);
+    // Ré-encodage complet : les octets 0 et 1 sont obfusqués et ne peuvent pas être retouchés sur le tampon émis.
+    if(this->lastFrame.bitLength == 80) this->lastFrame.encodeFrame(frm);
     somfy.transceiver.sendFrame(frm, this->bitLength == 56 ? 7 : 6, this->bitLength);
     esp_task_wdt_reset();
   }
@@ -4049,15 +4050,20 @@ void SomfyRemote::repeatFrame(uint8_t repeat) {
 void SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat) {
   somfy.transceiver.beginTransmit();
   byte frm[10];
+  uint8_t total = frame.repeats;
   frame.encodeFrame(frm);
   this->transceiver.sendFrame(frm, frame.bitLength == 56 ? 2 : 12, frame.bitLength);
   for(uint8_t i = 0; i < repeat; i++) {
-    // For each 80-bit frame we need to adjust the byte encoding for the
-    // silence.
-    if(frame.bitLength == 80) frame.encode80BitFrame(&frm[0], i + 1);
+    // Chaque répétition 80 bits est ré-encodée depuis l'objet avec son index : retoucher le tampon
+    // déjà obfusqué corrompait les octets 0 et 1 (les répétitions Toggle décodaient en MyDown).
+    if(frame.bitLength == 80) {
+      frame.repeats = i + 1;
+      frame.encodeFrame(frm);
+    }
     this->transceiver.sendFrame(frm, frame.bitLength == 56 ? 7 : 6, frame.bitLength);
     esp_task_wdt_reset();
   }
+  frame.repeats = total;
   this->transceiver.endTransmit();
 }
 bool SomfyShadeController::deleteShade(uint8_t shadeId) {
