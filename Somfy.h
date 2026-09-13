@@ -570,6 +570,7 @@ class SomfyShadeController {
     uint8_t groupCount();
     void updateGroupFlags();
     void pruneGroupLinks();
+    const char *radioPinConflict(JsonObject &obj);
     SomfyShade * getShadeById(uint8_t shadeId);
     SomfyRoom * getRoomById(uint8_t roomId);
     SomfyGroup * getGroupById(uint8_t groupId);

@@ -2414,6 +2414,12 @@ void Web::begin() {
       JsonObject obj = doc.as<JsonObject>();
       HTTPMethod method = server.method();
       if (method == HTTP_POST || method == HTTP_PUT) {
+        const char *conflict = somfy.radioPinConflict(obj);
+        if(conflict) {
+          snprintf(g_content, sizeof(g_content), "{\"status\":\"ERROR\",\"desc\":\"%s\"}", conflict);
+          server.send(400, _encoding_json, g_content);
+          return;
+        }
         somfy.transceiver.fromJSON(obj);
         somfy.transceiver.save();
         JsonResponse resp;

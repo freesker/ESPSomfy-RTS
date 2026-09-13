@@ -670,6 +670,21 @@ void SomfyShadeController::pruneGroupLinks() {
     if(changed) group->compressLinkedShadeIds();
   }
 }
+// Vérifie qu'aucune broche demandée pour la radio n'est déjà utilisée par l'Ethernet ou un volet GPIO.
+const char *SomfyShadeController::radioPinConflict(JsonObject &obj) {
+  static const char *const keys[] = {"SCKPin", "TXPin", "RXPin", "MOSIPin", "MISOPin", "CSNPin"};
+  bool eth = settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref;
+  for(const char *key : keys) {
+    if(!obj.containsKey(key)) continue;
+    int pin = obj[key].as<int>();
+    if(pin < 0 || pin == 255) continue;
+    if(eth && settings.Ethernet.usesPin((uint8_t)pin)) return "GPIO already used by the Ethernet interface";
+    for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
+      if(this->shades[i].getShadeId() != 255 && this->shades[i].usesPin((uint8_t)pin)) return "GPIO already used by a shade";
+    }
+  }
+  return nullptr;
+}
 SomfyRoom * SomfyShadeController::getRoomById(uint8_t roomId) {
   for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
     if(this->rooms[i].roomId == roomId) return &this->rooms[i];
@@ -3202,11 +3217,11 @@ int8_t SomfyShade::validateJSON(JsonObject &obj) {
         type = shade_types::drycontact;
     }
     else {
-      this->shadeType = static_cast<shade_types>(obj["shadeType"].as<uint8_t>());
+      type = static_cast<shade_types>(obj["shadeType"].as<uint8_t>());
     }
   }
-  if(obj.containsKey("proto")) {
-    radio_proto proto = this->proto;
+  if(obj.containsKey("proto") || this->proto == radio_proto::GP_Relay || this->proto == radio_proto::GP_Remote) {
+    radio_proto proto = obj.containsKey("proto") ? static_cast<radio_proto>(obj["proto"].as<uint8_t>()) : this->proto;
     if(proto == radio_proto::GP_Relay || proto == radio_proto::GP_Remote) {
       // Check to see if we are using the up and or down
       // GPIOs anywhere else.
@@ -3226,10 +3241,12 @@ int8_t SomfyShade::validateJSON(JsonObject &obj) {
       }
       if(settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref) {
         if((upPin != 255 && settings.Ethernet.usesPin(upPin)) ||
-          (downPin != 255 && somfy.transceiver.usesPin(downPin)) ||
-          (myPin != 255 && somfy.transceiver.usesPin(myPin)))
+          (downPin != 255 && settings.Ethernet.usesPin(downPin)) ||
+          (myPin != 255 && settings.Ethernet.usesPin(myPin)))
           ret = -11;
       }
+      if((upPin != 255 && !GPIO_IS_VALID_OUTPUT_GPIO(upPin)) || (downPin != 255 && !GPIO_IS_VALID_OUTPUT_GPIO(downPin)) || (myPin != 255 && !GPIO_IS_VALID_OUTPUT_GPIO(myPin)))
+        ret = -13;
       if(ret == 0) {
         for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
           SomfyShade *shade = &somfy.shades[i];
@@ -4362,21 +4379,23 @@ bool somfy_rx_queue_t::pop(somfy_rx_t *rx) {
 
 void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
   if(!this->config.enabled) return;
-  uint32_t pin = 1 << this->config.TXPin;
+  // gpio_set_level gère les deux banques de GPIO : l'écriture directe de GPIO_OUT_W1TS_REG avec
+  // 1 << TXPin ne couvrait que les broches 0 à 31 (une broche 32+ pilotait GPIO 0 sans rien émettre).
+  const gpio_num_t pin = (gpio_num_t)this->config.TXPin;
   if (sync == 2 || sync == 12) {  // Only with the first frame.  Repeats do not get a wakeup pulse.
     // All information online for the wakeup pulse appears to be incorrect.  While there is a wakeup
     // pulse it only sends an initial pulse.  There is no further delay after this.
     
     // Wake-up pulse
     //LOG_DF("Sending wakeup pulse: %d\n", sync);
-    REG_WRITE(GPIO_OUT_W1TS_REG, pin);
+    gpio_set_level(pin, 1);
     delayMicroseconds(10920);
     //delayMicroseconds(9415);
     
     // There is no silence after the wakeup pulse.  I tested this with Telis and no silence
     // was detected.  I suspect that for some battery powered shades the shade would go back
     // to sleep from the time of the initial pulse while the silence was occurring.
-    REG_WRITE(GPIO_OUT_W1TC_REG, pin);
+    gpio_set_level(pin, 0);
     delayMicroseconds(7357);
     //delayMicroseconds(9565);
     //delay(80);
@@ -4385,32 +4404,32 @@ void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
   // 56-bit 2 pulses for the first frame and 7 for the repeats
   // 80-bit 24 pulses for the first frame and 14 pulses for the repeats
   for (int i = 0; i < sync; i++) {
-    REG_WRITE(GPIO_OUT_W1TS_REG, pin);
+    gpio_set_level(pin, 1);
     delayMicroseconds(4 * SYMBOL);
-    REG_WRITE(GPIO_OUT_W1TC_REG, pin);
+    gpio_set_level(pin, 0);
     delayMicroseconds(4 * SYMBOL);
   }
   // Software sync
-  REG_WRITE(GPIO_OUT_W1TS_REG, pin);
+  gpio_set_level(pin, 1);
   //delayMicroseconds(4450); -- Initial timing.
   delayMicroseconds(4850);
   // Start 0
-  REG_WRITE(GPIO_OUT_W1TC_REG, pin);
+  gpio_set_level(pin, 0);
   delayMicroseconds(SYMBOL);
   // Payload starting with the most significant bit.  The frame is always supplied in 80 bits
   // but if the protocol is calling for 56 bits it will only send 56 bits of the frame.
   uint8_t last_bit = 0;
   for (byte i = 0; i < bitLength; i++) {
     if (((frame[i / 8] >> (7 - (i % 8))) & 1) == 1) {
-      REG_WRITE(GPIO_OUT_W1TC_REG, pin);
+      gpio_set_level(pin, 0);
       delayMicroseconds(SYMBOL);
-      REG_WRITE(GPIO_OUT_W1TS_REG, pin);
+      gpio_set_level(pin, 1);
       delayMicroseconds(SYMBOL);
       last_bit = 1;
     } else {
-      REG_WRITE(GPIO_OUT_W1TS_REG, pin);
+      gpio_set_level(pin, 1);
       delayMicroseconds(SYMBOL);
-      REG_WRITE(GPIO_OUT_W1TC_REG, pin);
+      gpio_set_level(pin, 0);
       delayMicroseconds(SYMBOL);
       last_bit = 0;
     }
@@ -4418,13 +4437,13 @@ void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
   // End with a 0 no matter what.  This accommodates the 56-bit protocol by telling the
   // motor that there are no more follow on bits.
   if(last_bit == 0) {
-    REG_WRITE(GPIO_OUT_W1TS_REG, pin);
+    gpio_set_level(pin, 1);
     //delayMicroseconds(SYMBOL);
   }
     
   // Inter-frame silence for 56-bit protocols are around 34ms.  However, an 80 bit protocol should
   // reduce this by the transmission of SYMBOL * 24 or 15,360us
-  REG_WRITE(GPIO_OUT_W1TC_REG, pin);
+  gpio_set_level(pin, 0);
   // Below are the original calculations for inter-frame silence.  However, when actually inspecting this from
   // the remote it appears to be closer to 27500us.  The delayMicoseconds call cannot be called with
   // values larger than 16383.
@@ -4776,15 +4795,26 @@ bool Transceiver::end() {
     this->disableReceive();
     return true;
 }
+// Une broche invalide pour la puce (inexistante ou entrée seule pour une sortie) garde la valeur courante.
+static uint8_t parsePin(JsonObject &obj, const char *key, uint8_t current, bool output) {
+  if(!obj.containsKey(key)) return current;
+  int pin = obj[key].as<int>();
+  bool valid = output ? GPIO_IS_VALID_OUTPUT_GPIO(pin) : GPIO_IS_VALID_GPIO(pin);
+  if(!valid) {
+    LOG_EF("Invalid GPIO %d for %s, keeping %u\n", pin, key, current);
+    return current;
+  }
+  return (uint8_t)pin;
+}
 void transceiver_config_t::fromJSON(JsonObject& obj) {
     //LOG_I("Deserialize Radio JSON ");
     if(obj.containsKey("type")) this->type = obj["type"];
-    if(obj.containsKey("CSNPin")) this->CSNPin = obj["CSNPin"];
-    if(obj.containsKey("MISOPin")) this->MISOPin = obj["MISOPin"];
-    if(obj.containsKey("MOSIPin")) this->MOSIPin = obj["MOSIPin"];
-    if(obj.containsKey("RXPin")) this->RXPin = obj["RXPin"];
-    if(obj.containsKey("SCKPin")) this->SCKPin = obj["SCKPin"];
-    if(obj.containsKey("TXPin")) this->TXPin = obj["TXPin"];
+    this->CSNPin = parsePin(obj, "CSNPin", this->CSNPin, true);
+    this->MISOPin = parsePin(obj, "MISOPin", this->MISOPin, false);
+    this->MOSIPin = parsePin(obj, "MOSIPin", this->MOSIPin, true);
+    this->RXPin = parsePin(obj, "RXPin", this->RXPin, false);
+    this->SCKPin = parsePin(obj, "SCKPin", this->SCKPin, true);
+    this->TXPin = parsePin(obj, "TXPin", this->TXPin, true);
     if(obj.containsKey("rxBandwidth")) this->rxBandwidth = obj["rxBandwidth"]; // float
     if(obj.containsKey("frequency")) this->frequency = obj["frequency"];  // float
     if(obj.containsKey("deviation")) this->deviation = obj["deviation"];  // float

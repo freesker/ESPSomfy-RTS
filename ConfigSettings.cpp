@@ -764,6 +764,10 @@ void EthernetSettings::toJSON(JsonResponse &json) {
 }
 
 bool EthernetSettings::usesPin(uint8_t pin) {
+#if CONFIG_IDF_TARGET_ESP32
+  // Broches RMII fixes de l'EMAC : TXD0, TX_EN, TXD1, RXD0, RXD1, CRS_DV.
+  if(pin == 19 || pin == 21 || pin == 22 || pin == 25 || pin == 26 || pin == 27) return true;
+#endif
   if((this->CLKMode == 0 || this->CLKMode == 1) && pin == 0) return true;
   else if(this->CLKMode == 2 && pin == 16) return true;
   else if(this->CLKMode == 3 && pin == 17) return true;
