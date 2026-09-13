@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <Update.h>
+#include <LittleFS.h>
 #include <HTTPClient.h>
 #include <mbedtls/sha256.h>
 #include <esp_task_wdt.h>
@@ -27,6 +28,33 @@ extern Network net;
 
 
 #define MAX_BUFF_SIZE 4096
+// L'image LittleFS écrase toute la partition : le système de fichiers est démonté pendant l'écriture
+// (les caches de l'instance montée ne reflètent plus la flash) et le fichier de sauvegarde, absent de
+// l'image, est conservé en mémoire puis réécrit. shades.cfg est régénéré depuis l'état en mémoire.
+static String preservedBackup;
+static void unmountForFilesystemUpdate() {
+  preservedBackup = "";
+  File f = LittleFS.open("/controller.backup", "r");
+  if(f) {
+    if(f.size() < 32768) preservedBackup = f.readString();
+    f.close();
+  }
+  LittleFS.end();
+}
+static void remountAfterFilesystemUpdate() {
+  if(!LittleFS.begin()) {
+    LOG_ELN("Unable to mount the file system after the update");
+    return;
+  }
+  if(preservedBackup.length() > 0) {
+    File f = LittleFS.open("/controller.backup", "w");
+    if(f) {
+      f.print(preservedBackup);
+      f.close();
+    }
+  }
+  preservedBackup = "";
+}
 #define UPDATE_ERR_OFFSET 20
 #define ERR_DOWNLOAD_HTTP -40
 #define ERR_DOWNLOAD_BUFFER -41
@@ -541,7 +569,9 @@ bool GitUpdater::beginUpdate(const char *version) {
     this->partition = U_SPIFFS;
     this->lockFS = true;
     strlcpy(this->expectedDigest, this->targetFsDigest, sizeof(this->expectedDigest));
+    unmountForFilesystemUpdate();
     this->error = this->downloadFile();
+    remountAfterFilesystemUpdate();
     this->lockFS = false;
     if(this->error == 0) {
       settings.fwVersion.parse(version);
@@ -564,7 +594,9 @@ bool GitUpdater::recoverFilesystem() {
   strlcpy(this->expectedDigest, this->targetFsDigest, sizeof(this->expectedDigest));
   this->partition = U_SPIFFS;
   this->lockFS = true;
+  unmountForFilesystemUpdate();
   this->error = this->downloadFile();
+  remountAfterFilesystemUpdate();
   this->lockFS = false;
   if(this->error == 0) {
     delay(100);
