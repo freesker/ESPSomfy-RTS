@@ -59,6 +59,10 @@ static void _rtrim(char *str) {
   dest[j] = '\0';
   _trim(dest);
 }
+// Comparaisons de temps robustes au débordement de millis() (49,7 jours) : toujours soustraire
+// l'instant de départ, jamais comparer des sommes.
+[[maybe_unused]] static inline bool elapsed(uint32_t since, uint32_t interval) { return (uint32_t)(millis() - since) >= interval; }
+[[maybe_unused]] static inline bool reached(uint32_t when) { return (int32_t)(millis() - when) >= 0; }
 struct rebootDelay_t {
   bool reboot = false;
   int rebootTime = 0;
