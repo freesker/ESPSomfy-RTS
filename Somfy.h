@@ -569,6 +569,7 @@ class SomfyShadeController {
     uint8_t shadeCount();
     uint8_t groupCount();
     void updateGroupFlags();
+    void pruneGroupLinks();
     SomfyShade * getShadeById(uint8_t shadeId);
     SomfyRoom * getRoomById(uint8_t roomId);
     SomfyGroup * getGroupById(uint8_t groupId);

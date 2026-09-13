@@ -639,6 +639,25 @@ void SomfyShadeController::writeBackup() {
   file.backup(this);
   file.end();
 }
+// Retire des groupes les ids de volets qui n'existent plus (backup d'un autre appareil, ancien
+// écrasement) : un id orphelin faisait déréférencer un pointeur nul à chaque trame capteur.
+void SomfyShadeController::pruneGroupLinks() {
+  for(uint8_t g = 0; g < SOMFY_MAX_GROUPS; g++) {
+    SomfyGroup *group = &this->groups[g];
+    if(group->getGroupId() == 255) continue;
+    bool changed = false;
+    for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
+      uint8_t id = group->linkedShades[i];
+      if(id == 0) continue;
+      if(id == 255 || !this->getShadeById(id)) {
+        LOG_EF("Group %u linked to missing shade %u, unlinking\n", group->getGroupId(), id);
+        group->linkedShades[i] = 0;
+        changed = true;
+      }
+    }
+    if(changed) group->compressLinkedShadeIds();
+  }
+}
 SomfyRoom * SomfyShadeController::getRoomById(uint8_t roomId) {
   for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
     if(this->rooms[i].roomId == roomId) return &this->rooms[i];

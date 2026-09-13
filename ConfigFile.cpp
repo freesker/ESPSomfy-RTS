@@ -394,6 +394,13 @@ bool ShadeConfigFile::validate() {
     LOG_ELN(this->header.shadeRecordSize);
     return false;
   }
+  // Les compteurs viennent du fichier : sans ces bornes un backup forgé ou issu d'une version
+  // future écrirait au-delà des tableaux rooms[], shades[] et groups[].
+  if(this->header.roomRecords > SOMFY_MAX_ROOMS || this->header.shadeRecords > SOMFY_MAX_SHADES ||
+     this->header.groupRecords > SOMFY_MAX_GROUPS || this->header.repeaterRecords > 1) {
+    LOG_EF("Invalid record counts: %u rooms %u shades %u groups %u repeaters\n", this->header.roomRecords, this->header.shadeRecords, this->header.groupRecords, this->header.repeaterRecords);
+    return false;
+  }
   /*
   if(this->header.shadeRecords != SOMFY_MAX_SHADES) {
     LOG_E("Invalid Shade Record Count:");
@@ -532,6 +539,7 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
       if(i > 0) LOG_D(",");
       LOG_D(s->rooms[i].roomId);
     }
+    for(uint8_t ndx = this->header.roomRecords; ndx < SOMFY_MAX_ROOMS; ndx++) s->rooms[ndx].clear();
     LOG_ILN("Restoring Shades...");
     // We should be valid so start reading.
     for(uint8_t i = 0; i < this->header.shadeRecords; i++) {
@@ -561,13 +569,15 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
         ((SomfyGroup *)&s->groups[ndx++])->clear();
       }
     }
+    s->pruneGroupLinks();
   }
   else {
     LOG_DLN("Shade data ignored");
-    // FF past the shades and groups.
+    // FF past the rooms, shades and groups.
     this->file.seek(this->file.position()
+      + (this->header.version >= 19 ? this->header.roomRecords * this->header.roomRecordSize : 0)
       + (this->header.shadeRecords * this->header.shadeRecordSize)
-      + (this->header.groupRecords * this->header.groupRecordSize), SeekSet);  // Start at the beginning of the file after the header.
+      + (this->header.groupRecords * this->header.groupRecordSize), SeekSet);
   }
   if(opts.repeaters) {
     LOG_ILN("Restoring Repeaters...");
@@ -912,6 +922,7 @@ bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {
       ((SomfyGroup *)&s->groups[ndx++])->clear();
     }
   }
+  s->pruneGroupLinks();
   if(this->header.repeaterRecords > 0) {
     memset(s->repeaters, 0x00, sizeof(uint32_t) * SOMFY_MAX_REPEATERS);
     for(uint8_t i = 0; i < this->header.repeaterRecords; i++)
