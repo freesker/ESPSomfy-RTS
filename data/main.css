@@ -15,11 +15,19 @@ body {
 }
 
 
+:root {
+    /* Cyan de la marque pour les aplats ; ses déclinaisons foncées pour le texte et les boutons
+       (contraste AA : #00bcd4 sur #eee ne donnait que 1,98:1). */
+    --accent: #00bcd4;
+    --accent-text: #007c8c;
+    --accent-button: #0097a7;
+    --text-muted: #5f6b76;
+}
 h1 {
     text-align: center;
     margin-bottom: 10px;
     margin-top: 0px;
-    color: #939393;
+    color: var(--text-muted);
     font-size: 28px;
 }
 hr {
@@ -28,8 +36,7 @@ hr {
 
 
 input[type="range"] {
-    accent-color: #00bcd4;
-    outline:none;
+    accent-color: var(--accent);
 }
 
     input[type="range"]:active {
@@ -118,7 +125,7 @@ form {
     font-size:14px;
     margin-bottom:10px;
     margin-top:-10px;
-    color:#00bcd4;
+    color:var(--accent-text);
 }
 .field-group1 > div.field-group {
     display:inline-block;
@@ -172,7 +179,11 @@ input[type=password]:focus,
 input[type=number]:focus,
 input[type=text]:focus {
     border-color: #4C669F;
-    outline: 0;
+}
+/* Navigation clavier : un contour visible sur tout élément focalisé au clavier. */
+:focus-visible {
+    outline: 2px solid var(--accent-text);
+    outline-offset: 2px;
 }
 
 .button-container {
@@ -547,7 +558,7 @@ div.wait-overlay > .lds-roller {
     text-align:center;
 }
 .button-outline {
-    background-color: #00bcd4;
+    background-color: var(--accent-button);
     border-radius:50%;
     padding:3px 5px 5px 5px;
     margin-left:2px;
@@ -570,7 +581,7 @@ div.wait-overlay > .lds-roller {
 }
 .cfg-room {
     font-size:12px;
-    color:darkorange;
+    color:#c2410c;
 }
 .somfyShade[data-roomid="0"] .cfg-room,
 .somfyGroup[data-roomid="0"] .cfg-room {
@@ -674,7 +685,7 @@ div.wait-overlay > .lds-roller {
         font-size:12px;
         margin-bottom:-3px;
         display:block;
-        color:darkorange;
+        color:#c2410c;
     }
     .somfyGroupCtl[data-roomid="0"] .groupctl-room,
     .somfyShadeCtl[data-roomid="0"] .shadectl-room {
@@ -854,7 +865,7 @@ div.frame-pulses {
     text-overflow:ellipsis;
     display:none;
 }
-@media only screen and (max-device-width: 480px) {
+@media only screen and (max-width: 480px) {
     body {
         margin-top: 0px;
     }

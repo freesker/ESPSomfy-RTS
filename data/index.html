@@ -122,12 +122,12 @@
         <div id="divAuthenticated" style="display:none;">
             <div id="divFirmwareUpdate" class="firmware-message" style="display:none;">Firmware Update Available</div>
             <div id="divRadioError" class="header-message">Radio Not Initialized</div>
-            <h1 style="text-align: center;"><img src="icon.png" style="width:50px;float:left;margin-left:1px;margin-top:-10px;" /><span>ESPSomfy RTS</span><span class="button-outline" onclick="ui.toggleConfig();" style="float:right;font-size:1.25rem;display:inline-block;vertical-align:middle;width:38px;height:38px;position:relative;padding-top:4px;"><span style="vertical-align:middle;clear:both;text-align:center;display:inline-block;"><i id="icoConfig" class="icss-gear" style=""></i></span></span></h1>
+            <h1 style="text-align: center;"><img src="icon.png" alt="" style="width:50px;float:left;margin-left:1px;margin-top:-10px;" /><span>ESPSomfy RTS</span><span class="button-outline" onclick="ui.toggleConfig();" style="float:right;font-size:1.25rem;display:inline-block;vertical-align:middle;width:38px;height:38px;position:relative;padding-top:4px;"><span style="vertical-align:middle;clear:both;text-align:center;display:inline-block;"><i id="icoConfig" class="icss-gear" style=""></i></span></span></h1>
             <div id="divConfigPnl" style="display:none;">
                 <div id="divWiFiStrength" style="margin-top:-10px;text-align:center;font-size:12px;">
                     <div style="display:inline-block;vertical-align:middle;">
-                        <div><span style="text-align:right;display:inline-block;width:57px;color:#00bcd4">Network:</span><span id="spanNetworkSSID" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">-------------</span></div>
-                        <div><span style="text-align:right;display:inline-block;width:57px;color:#00bcd4">Channel:</span><span id="spanNetworkChannel" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">--</span></div>
+                        <div><span style="text-align:right;display:inline-block;width:57px;color:var(--accent-text)">Network:</span><span id="spanNetworkSSID" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">-------------</span></div>
+                        <div><span style="text-align:right;display:inline-block;width:57px;color:var(--accent-text)">Channel:</span><span id="spanNetworkChannel" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">--</span></div>
                     </div>
                     <div id="divNetworkStrength" class="wifiSignal" style="display:inline-block;vertical-align:middle;">
                     </div>
@@ -137,8 +137,8 @@
                 </div>
                 <div id="divEthernetStatus" style="margin-top:-10px;text-align:center;font-size:12px;display:none;">
                     <div style="display:inline-block;vertical-align:middle;">
-                        <div><span style="text-align:right;display:inline-block;width:57px;color:#00bcd4">Status:</span><span id="spanEthernetStatus" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">-------------</span></div>
-                        <div><span style="text-align:right;display:inline-block;width:57px;color:#00bcd4">Speed:</span><span id="spanEthernetSpeed" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">--</span></div>
+                        <div><span style="text-align:right;display:inline-block;width:57px;color:var(--accent-text)">Status:</span><span id="spanEthernetStatus" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">-------------</span></div>
+                        <div><span style="text-align:right;display:inline-block;width:57px;color:var(--accent-text)">Speed:</span><span id="spanEthernetSpeed" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">--</span></div>
                     </div>
                 </div>
                 <div class="tab-container"><span class="selected" data-grpid="divSystemSettings">System</span><span data-grpid="divNetworkSettings">Network</span><span data-grpid="divSomfySettings">Somfy</span><span data-grpid="divRadioSettings">Radio</span></div>
@@ -226,26 +226,26 @@
                     <div id="divFirmware" class="subtab-content" style="display:none;padding-top:10px;">
                         <div style="display:inline-block">
                             <div style="font-size:17px;">
-                                <span style="text-align:right;display:inline-block;color:#00bcd4;width:127px;margin-top:-27px;">Hardware: </span>
+                                <span style="text-align:right;display:inline-block;color:var(--accent-text);width:127px;margin-top:-27px;">Hardware: </span>
                                 <span style="padding-left: 4px; display: inline-block;">ESP32<span id="spanHwVersion" style="text-transform:uppercase; text-align:left;width:120px;"></span></span>
                             </div>
                             <div style="font-size:17px;">
-                                <span style="text-align:right;display:inline-block;color:#00bcd4;width:127px;margin-top:-27px;">Firmware:</span>
+                                <span style="text-align:right;display:inline-block;color:var(--accent-text);width:127px;margin-top:-27px;">Firmware:</span>
                                 <span id="spanFwVersion" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">v-.--</span>
                             </div>
                             <div style="font-size:17px;">
-                                <span style="text-align:right;display:inline-block;color:#00bcd4;width:127px;">Application:</span>
+                                <span style="text-align:right;display:inline-block;color:var(--accent-text);width:127px;">Application:</span>
                                 <span id="spanAppVersion" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">v-.--</span>
                             </div>
                         </div>
                         <div style="display:inline-block;font-size:12px;padding-top:10px;padding-left:37px;">
                             <div style="color: #00bcd4;">Memory (bytes)</div>
                             <div style="font-size:12px;display:inline-block;">
-                                <span style="text-align:right;display:inline-block;color:#00bcd4;">Free: </span>
+                                <span style="text-align:right;display:inline-block;color:var(--accent-text);">Free: </span>
                                 <span id="spanFreeMemory" style="text-align:right;width:120px;"></span>
-                                <span style="text-align:right;display:inline-block;color:#00bcd4;">Max: </span>
+                                <span style="text-align:right;display:inline-block;color:var(--accent-text);">Max: </span>
                                 <span id="spanMaxMemory" style="text-align:right;width:120px;"></span>
-                                <span style="text-align:right;display:inline-block;color:#00bcd4;">Min: </span>
+                                <span style="text-align:right;display:inline-block;color:var(--accent-text);">Min: </span>
                                 <span id="spanMinMemory" style="text-align:right;width:120px;"></span>
                             </div>
                         </div>
@@ -276,7 +276,7 @@
                 <div id="divNetworkSettings" style="display:none;">
                     <div class="subtab-container"><span class="selected" data-grpid="divNetAdapter">Adapter</span><span data-grpid="divDHCP">DHCP/Static IP</span><span data-grpid="divMQTT">MQTT</span></div>
                     <div id="divNetAdapter" class="subtab-content">
-                        <div class="field-group" style="vertical-align:middle;color:#00bcd4;margin-top:-24px;">
+                        <div class="field-group" style="vertical-align:middle;color:var(--accent-text);margin-top:-24px;">
                             <input id="cbHardwired" name="hardwired" data-bind="ethernet.hardwired" type="checkbox" style="display:inline-block;" onclick="wifi.useEthernetClicked();" />
                             <label for="cbHardwired" style="display:inline-block;cursor:pointer;">Use Ethernet</label>
                             <div id="divFallbackWireless" style="display:inline-block;padding-left:7px;">
@@ -284,7 +284,7 @@
                                 <label for="cbFallbackWireless" style="display:inline-block;cursor:pointer;">Fallback to Wireless</label>
                             </div>
                         </div>
-                        <div class="field-group" style="vertical-align:middle;color:#00bcd4;margin-top:-12px;margin-bottom:18px;">
+                        <div class="field-group" style="vertical-align:middle;color:var(--accent-text);margin-top:-12px;margin-bottom:18px;">
                             <div id="divHiddenSSID" style="display:inline-block;">
                                 <input id="cbHiddenSSID" data-bind="wifi.hidden" type="checkbox" style="display:inline-block;" onclick="wifi.hiddenSSIDClicked();" />
                                 <label for="cbHiddenSSID" style="display:inline-block;cursor:pointer;">Use Hidden SSID</label>
@@ -381,7 +381,7 @@
                                 <label for="fldDNS2">Domain Name Server 2</label>
                             </div>
                         </div>
-                        <div style="color:#00bcd4;">* Settings will not take effect until the ESPSomfy RTS device is rebooted</div>
+                        <div style="color:var(--accent-text);">* Settings will not take effect until the ESPSomfy RTS device is rebooted</div>
                         <div class="button-container">
                             <button id="btnSaveIPSettings" type="button" onclick="wifi.saveIPSettings();">
                                 Save IP Settings
@@ -633,7 +633,7 @@
                             </div>
 
                             <div class="field-group" style="display:inline-block;">
-                                <label for="selRepeatCommands" style="cursor:pointer;color:#00bcd4;margin-right:4px;">Repeat Commands</label>
+                                <label for="selRepeatCommands" style="cursor:pointer;color:var(--accent-text);margin-right:4px;">Repeat Commands</label>
                                 <select id="selRepeatCommands" data-bind="repeats" data-datatype="int" style="width:127px;">
                                     <option value="0">No Repeats</option>
                                     <option value="1">1 Time</option>
@@ -749,7 +749,7 @@
                             </div>
 
                             <div class="field-group" style="display:inline-block;">
-                                <label for="selGroupRepeatCommands" style="cursor:pointer;color:#00bcd4;margin-right:4px;">Repeat Commands</label>
+                                <label for="selGroupRepeatCommands" style="cursor:pointer;color:var(--accent-text);margin-right:4px;">Repeat Commands</label>
                                 <select id="selGroupRepeatCommands" data-bind="repeats" data-datatype="int" style="width:127px;">
                                     <option value="0">No Repeats</option>
                                     <option value="1">1 Time</option>
@@ -800,21 +800,21 @@
                         <div class="vr-button vr-updownmy">
                             <span>Remote Buttons</span>
                             <div>
-                                <div class="button-outline" data-cmd="up" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><i class="icss-somfy-up"></i></div>
-                                <div class="button-outline" data-cmd="my" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);" style="font-size: 2em; padding: 10px;"><span>my</span></div>
-                                <div class="button-outline" data-cmd="down" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>
+                                <div class="button-outline" data-cmd="up" onpointerdown="somfy.sendVRCommand(this);"><i class="icss-somfy-up"></i></div>
+                                <div class="button-outline" data-cmd="my" onpointerdown="somfy.sendVRCommand(this);" style="font-size: 2em; padding: 10px;"><span>my</span></div>
+                                <div class="button-outline" data-cmd="down" onpointerdown="somfy.sendVRCommand(this);"><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>
                             </div>
                         </div>
                         <div class="vr-button vr-stop vr-80bit">
                             <span>Stop</span>
                             <div>
-                                <div class="button-outline toggle-button" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="stop" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><i class="icss-hand" style=""></i></div>
+                                <div class="button-outline toggle-button" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="stop" onpointerdown="somfy.sendVRCommand(this);"><i class="icss-hand" style=""></i></div>
                             </div>
                         </div>
                         <div class="vr-button vr-updownmy">
                             <span>Toggle Button</span>
                             <div>
-                                <div class="button-outline toggle-button" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="toggle" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><i class="icss-somfy-toggle" style="margin-top:-4px;"></i></div>
+                                <div class="button-outline toggle-button" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="toggle" onpointerdown="somfy.sendVRCommand(this);"><i class="icss-somfy-toggle" style="margin-top:-4px;"></i></div>
                             </div>
                         </div>
                         <div class="vr-button vr-updown vr-80bit">
@@ -822,56 +822,56 @@
                             <div style="margin-right:7px;width:470px;font-size:.8em;">
                                 <input id="vrslidStepSize" name="stepSize" type="range" min="1" max="127" step="1" style="width:100%;" data-bind="stepSize" value="1" oninput="document.getElementById('vrspanStepSize').innerText = this.value;" />
                                 <div>
-                                    <label style="color:#00bcd4;">Step Size:</label><span id="vrspanStepSize">1</span>
+                                    <label style="color:var(--accent-text);">Step Size:</label><span id="vrspanStepSize">1</span>
                                 </div>
                             </div>
                             <div>
-                                <div class="button-outline" style="width:59px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="StepUp" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><span></span><i class="icss-somfy-up" style="margin-top:4px;"></i></div>
-                                <div class="button-outline" style="width:59px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="StepDown" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><span></span><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>
+                                <div class="button-outline" style="width:59px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="StepUp" onpointerdown="somfy.sendVRCommand(this);"><span></span><i class="icss-somfy-up" style="margin-top:4px;"></i></div>
+                                <div class="button-outline" style="width:59px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="StepDown" onpointerdown="somfy.sendVRCommand(this);"><span></span><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>
                             </div>
                         </div>
                         <div class="vr-button vr-favorite vr-80bit">
                             <span>Favorite</span>
                             <div>
-                                <div class="button-outline toggle-button" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="favorite" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><i class="icss-bookmark" style=""></i></div>
+                                <div class="button-outline toggle-button" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="favorite" onpointerdown="somfy.sendVRCommand(this);"><i class="icss-bookmark" style=""></i></div>
                             </div>
                         </div>
 
                         <div class="vr-button vr-updown">
                             <span>Up + Down</span>
                             <div>
-                                <div class="button-outline" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="UpDown" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><i class="icss-somfy-up"></i><span> + </span><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>
+                                <div class="button-outline" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="UpDown" onpointerdown="somfy.sendVRCommand(this);"><i class="icss-somfy-up"></i><span> + </span><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>
                             </div>
                         </div>
                         <div class="vr-button vr-updownmy">
                             <span>Up + My + Down</span>
                             <div>
-                                <div class="button-outline" data-cmd="MyUpDown" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><span style="padding: 10px;">all</span></div>
+                                <div class="button-outline" data-cmd="MyUpDown" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" onpointerdown="somfy.sendVRCommand(this);"><span style="padding: 10px;">all</span></div>
                             </div>
                         </div>
                         <div class="vr-button vr-updown">
                             <span>My + Up</span>
                             <div>
-                                <div class="button-outline" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="MyUp" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><span>my</span><span> + </span><i class="icss-somfy-up"></i></div>
+                                <div class="button-outline" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="MyUp" onpointerdown="somfy.sendVRCommand(this);"><span>my</span><span> + </span><i class="icss-somfy-up"></i></div>
                             </div>
                         </div>
                         <div class="vr-button vr-updown">
                             <span>My + Down</span>
                             <div>
-                                <div class="button-outline" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="MyDown" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><span>my</span><span> + </span><i class="icss-somfy-down"></i></div>
+                                <div class="button-outline" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="MyDown" onpointerdown="somfy.sendVRCommand(this);"><span>my</span><span> + </span><i class="icss-somfy-down"></i></div>
                             </div>
                         </div>
                         <div class="vr-button vr-updown">
                             <span>Prog</span>
                             <div>
-                                <div class="button-outline" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="Prog" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><span>prog</span></div>
+                                <div class="button-outline" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="Prog" onpointerdown="somfy.sendVRCommand(this);"><span>prog</span></div>
                             </div>
                         </div>
                         <div class="vr-button vr-updown">
                             <span>Sun Flag</span>
                             <div>
-                                <div class="button-outline" style="width: 59px; text-align: center; border-radius: 33%; font-size: 2em; padding: 10px; height: 52px;" data-cmd="SunFlag" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><div class="button-sunflag" data-on="true" style="margin:0px;margin-left:4px;"><i class="icss-sun-c" style="background:white;"></i><i class="icss-sun-o" style="left:0px;color:white;"></i></div></div>
-                                <div class="button-outline" style="width: 59px; text-align: center; border-radius: 33%; font-size: 2em; padding: 10px; height: 52px;" data-cmd="Flag" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><div class="button-sunflag" data-on="false" style="margin:0px;margin-left:4px;"><i class="icss-sun-c" style="background:transparent;"></i><i class="icss-sun-o" style="left:0px;color:white;"></i></div></div>
+                                <div class="button-outline" style="width: 59px; text-align: center; border-radius: 33%; font-size: 2em; padding: 10px; height: 52px;" data-cmd="SunFlag" onpointerdown="somfy.sendVRCommand(this);"><div class="button-sunflag" data-on="true" style="margin:0px;margin-left:4px;"><i class="icss-sun-c" style="background:white;"></i><i class="icss-sun-o" style="left:0px;color:white;"></i></div></div>
+                                <div class="button-outline" style="width: 59px; text-align: center; border-radius: 33%; font-size: 2em; padding: 10px; height: 52px;" data-cmd="Flag" onpointerdown="somfy.sendVRCommand(this);"><div class="button-sunflag" data-on="false" style="margin:0px;margin-left:4px;"><i class="icss-sun-c" style="background:transparent;"></i><i class="icss-sun-o" style="left:0px;color:white;"></i></div></div>
                             </div>
                         </div>
                         <div class="vr-button">
@@ -889,7 +889,7 @@
                                 </span>
                             </span>
                             <div>
-                                <div class="button-outline" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="Sensor" onmousedown="somfy.sendVRCommand(this);" ontouchstart="somfy.sendVRCommand(this);"><div class="button-sunflag" data-on="false" style="margin:0px;"></div><span>send</span></div>
+                                <div class="button-outline" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="Sensor" onpointerdown="somfy.sendVRCommand(this);"><div class="button-sunflag" data-on="false" style="margin:0px;"></div><span>send</span></div>
                             </div>
                         </div>
                     </div>
@@ -1011,7 +1011,7 @@
             </div>
         </div>
         <div id="divUnauthenticated">
-            <h1 style="text-align: center;"><img src="icon.png" style="width:127px;margin-left:1px;margin-top:-10px;" /></h1>
+            <h1 style="text-align: center;"><img src="icon.png" alt="ESPSomfy RTS" style="width:127px;margin-left:1px;margin-top:-10px;" /></h1>
             <input id="fldLoginPin" type="hidden" name="pin" />
             <input id="fldLoginType" type="hidden" data-bind="login.type" data-datatype="int" />
             <div id="divLoginPin" style="display:none;">

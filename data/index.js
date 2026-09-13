@@ -2312,9 +2312,9 @@ class Somfy {
             divCtl += `<div class="shadectl-buttons" data-shadeType="${shade.shadeType}">`;
             divCtl += `<div class="button-light cmd-button" data-cmd="light" data-shadeid="${shade.shadeId}" data-on="${shade.flags & 0x08 ? 'true' : 'false'}" style="${!shade.light ? 'display:none' : ''}"><i class="icss-lightbuld-c"></i><i class="icss-lightbulb-o"></i></div>`;
             divCtl += `<div class="button-sunflag cmd-button" data-cmd="sunflag" data-shadeid="${shade.shadeId}" data-on="${shade.flags & 0x01 ? 'true' : 'false'}" style="${!shade.sunSensor ? 'display:none' : ''}"><i class="icss-sun-c"></i><i class="icss-sun-o"></i></div>`;
-            divCtl += `<div class="button-outline cmd-button" data-cmd="up" data-shadeid="${shade.shadeId}"><i class="icss-somfy-up"></i></div>`;
+            divCtl += `<div class="button-outline cmd-button" role="button" tabindex="0" aria-label="up" data-cmd="up" data-shadeid="${shade.shadeId}"><i class="icss-somfy-up"></i></div>`;
             divCtl += `<div class="button-outline cmd-button my-button" data-cmd="my" data-shadeid="${shade.shadeId}" style="font-size:2em;padding:10px;"><span>my</span></div>`;
-            divCtl += `<div class="button-outline cmd-button" data-cmd="down" data-shadeid="${shade.shadeId}"><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>`;
+            divCtl += `<div class="button-outline cmd-button" role="button" tabindex="0" aria-label="down" data-cmd="down" data-shadeid="${shade.shadeId}"><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>`;
             divCtl += `<div class="button-outline cmd-button toggle-button" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="toggle" data-shadeid="${shade.shadeId}"><i class="icss-somfy-toggle" style="margin-top:-4px;"></i></div>`;
             divCtl += '</div></div>';
             divCtl += '</div>';
