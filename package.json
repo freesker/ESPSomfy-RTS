@@ -1,0 +1,12 @@
+{
+  "name": "espsomfy-rts-web",
+  "private": true,
+  "description": "Outillage de vérification de l'interface web embarquée (data/)",
+  "scripts": {
+    "lint": "eslint data/index.js && html-validate data/index.html"
+  },
+  "devDependencies": {
+    "eslint": "9.14.0",
+    "html-validate": "8.24.2"
+  }
+}

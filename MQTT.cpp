@@ -2,6 +2,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
+#include "Log.h"
 #include "ConfigSettings.h"
 #include "MQTT.h"
 #include "Somfy.h"
@@ -45,18 +46,18 @@ bool MQTTClass::loop() {
 }
 void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   esp_task_wdt_reset(); // Make sure we do not reboot here.
-  Serial.print("MQTT Topic:");
-  Serial.print(topic);
-  Serial.print(" payload:");
+  LOG_I("MQTT Topic:");
+  LOG_I(topic);
+  LOG_I(" payload:");
   for(uint32_t i=0; i<length; i++)
-    Serial.print((char)payload[i]);
-  Serial.println();
+    LOG_I((char)payload[i]);
+  LOG_ILN();
 
   // We need to start at the last slash in the data
-  uint8_t len = strlen(topic);
-  
+  size_t len = strlen(topic);
+  if(len == 0) return;
   uint8_t slashes = 0;
-  uint16_t ndx = strlen(topic) - 1;
+  size_t ndx = len - 1;
   while(ndx > 0) {
     if(topic[ndx] == '/') slashes++;
     if(slashes == 4) break;
@@ -73,7 +74,7 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   uint8_t i = 0;
   while(topic[ndx] == '/' && ndx < len) ndx++;
   while(ndx < len) {
-    if(topic[ndx] != '/' && i < sizeof(entityType))
+    if(topic[ndx] != '/' && i < sizeof(entityType) - 1)
       entityType[i++] = topic[ndx];
     ndx++;
     if(topic[ndx] == '/') break;
@@ -81,7 +82,7 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   i = 0;
   while(topic[ndx] == '/' && ndx < len) ndx++;
   while(ndx < len) {
-    if(topic[ndx] != '/' && i < sizeof(entityId))
+    if(topic[ndx] != '/' && i < sizeof(entityId) - 1)
       entityId[i++] = topic[ndx];
     ndx++;
     if(topic[ndx] == '/') break;
@@ -89,22 +90,22 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   i = 0;
   while(topic[ndx] == '/' && ndx < len) ndx++;
   while(ndx < len) {
-    if(topic[ndx] != '/' && i < sizeof(command))
+    if(topic[ndx] != '/' && i < sizeof(command) - 1)
       command[i++] = topic[ndx];
     ndx++;
     if(topic[ndx] == '/') break;
   }
-  for(uint8_t j = 0; j < length && j < sizeof(value); j++)
+  for(uint32_t j = 0; j < length && j < sizeof(value) - 1; j++)
     value[j] = payload[j];
   
-  Serial.print("MQTT type:[");
-  Serial.print(entityType);
-  Serial.print("] command:[");
-  Serial.print(command);
-  Serial.print("] entityId:");
-  Serial.print(entityId);
-  Serial.print(" value:");
-  Serial.println(value);
+  LOG_I("MQTT type:[");
+  LOG_I(entityType);
+  LOG_I("] command:[");
+  LOG_I(command);
+  LOG_I("] entityId:");
+  LOG_I(entityId);
+  LOG_I(" value:");
+  LOG_ILN(value);
   if(strncmp(entityType, "shades", sizeof(entityType)) == 0) {
     SomfyShade* shade = somfy.getShadeById(atoi(entityId));
     if (shade) {
@@ -170,10 +171,11 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
           group->sendCommand(somfy_commands::My);
       }
       else if(strncmp(command, "sunFlag", sizeof(command)) == 0) {
+        // Même sens que pour les volets : 1 active le mode soleil (SunFlag), 0 le désactive (Flag).
         if(val > 0)
-          group->sendCommand(somfy_commands::Flag);
-        else
           group->sendCommand(somfy_commands::SunFlag);
+        else
+          group->sendCommand(somfy_commands::Flag);
       }
       else if(strncmp(command, "sunny", sizeof(command)) == 0) {
         if(val >= 0) group->sendSensorCommand(-1, val, group->repeats);
@@ -185,6 +187,13 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   }
   esp_task_wdt_reset(); // Make sure we do not reboot here.
 }
+// Topics de commande souscrits : une seule liste pour subscribe et unsubscribe.
+static const char *const kCommandTopics[] = {
+  "shades/+/target/set", "shades/+/tiltTarget/set", "shades/+/direction/set", "shades/+/mypos/set",
+  "shades/+/myTiltPos/set", "shades/+/sunFlag/set", "shades/+/sunny/set", "shades/+/windy/set",
+  "shades/+/position/set", "shades/+/tiltPosition/set",
+  "groups/+/direction/set", "groups/+/sunFlag/set", "groups/+/sunny/set", "groups/+/windy/set"
+};
 bool MQTTClass::connect() {
   esp_task_wdt_reset(); // Make sure we do not reboot here.
   if(mqttClient.connected()) {
@@ -194,18 +203,21 @@ bool MQTTClass::connect() {
       return true;
   }
   if(settings.MQTT.enabled && !this->suspended) {
-    if(this->lastConnect + 10000 > millis()) return false;    
+    // Reconnexion avec délai croissant (10 s puis doublé jusqu'à 5 min) : un broker absent ne doit pas
+    // geler loop() toutes les 10 s le temps d'une résolution DNS et d'un connect() bloquant.
+    if(!elapsed(this->lastConnect, this->reconnectDelay)) return false;
     uint64_t mac = ESP.getEfuseMac();
     snprintf(this->clientId, sizeof(this->clientId), "client-%08x%08x", (uint32_t)((mac >> 32) & 0xFFFFFFFF), (uint32_t)(mac & 0xFFFFFFFF));
     if(strlen(settings.MQTT.protocol) > 0 && strlen(settings.MQTT.hostname) > 0) {
       mqttClient.setServer(settings.MQTT.hostname, settings.MQTT.port);
+      mqttClient.setSocketTimeout(MQTT_SOCKET_TIMEOUT_S);
       char lwtTopic[128] = "status";
       if(strlen(settings.MQTT.rootTopic) > 0)
         snprintf(lwtTopic, sizeof(lwtTopic), "%s/status", settings.MQTT.rootTopic);
       esp_task_wdt_reset();
       if(mqttClient.connect(this->clientId, settings.MQTT.username, settings.MQTT.password, lwtTopic, 0, true, "offline")) {
-        Serial.print("Successfully connected MQTT client ");
-        Serial.println(this->clientId);
+        LOG_I("Successfully connected MQTT client ");
+        LOG_ILN(this->clientId);
         this->publish("status", "online", true);
         this->publish("ipAddress", settings.IP.ip.toString().c_str(), true);
         this->publish("host", settings.hostname, true);
@@ -213,30 +225,19 @@ bool MQTTClass::connect() {
         this->publish("serverId", settings.serverId, true);
         this->publish("mac", net.mac.c_str());
         somfy.publish();
-        this->subscribe("shades/+/target/set");
-        this->subscribe("shades/+/tiltTarget/set");
-        this->subscribe("shades/+/direction/set");
-        this->subscribe("shades/+/mypos/set");
-        this->subscribe("shades/+/myTiltPos/set");
-        this->subscribe("shades/+/sunFlag/set");
-        this->subscribe("shades/+/sunny/set");
-        this->subscribe("shades/+/windy/set");
-        this->subscribe("shades/+/position/set");
-        this->subscribe("shades/+/tiltPosition/set");
-        this->subscribe("groups/+/direction/set");
-        this->subscribe("groups/+/sunFlag/set");
-        this->subscribe("groups/+/sunny/set");
-        this->subscribe("groups/+/windy/set");
         mqttClient.setCallback(MQTTClass::receive);
-        Serial.println("MQTT Startup Completed");
+        for(const char *topic : kCommandTopics) this->subscribe(topic);
+        LOG_ILN("MQTT Startup Completed");
         esp_task_wdt_reset();
         this->lastConnect = millis();
+        this->reconnectDelay = MQTT_RECONNECT_MIN_MS;
         return true;
       }
       else {
-        Serial.print("MQTT Connection failed for: ");
-        Serial.println(mqttClient.state());
+        LOG_E("MQTT Connection failed for: ");
+        LOG_ELN(mqttClient.state());
         this->lastConnect = millis();
+        this->reconnectDelay = min(this->reconnectDelay * 2, (uint32_t)MQTT_RECONNECT_MAX_MS);
         return false;
       }
     }
@@ -247,21 +248,7 @@ bool MQTTClass::connect() {
 }
 bool MQTTClass::disconnect() {
   if(mqttClient.connected()) {
-    this->unsubscribe("shades/+/target/set");
-    this->unsubscribe("shades/+/direction/set");
-    this->unsubscribe("shades/+/tiltTarget/set");
-    this->unsubscribe("shades/+/mypos/set");
-    this->unsubscribe("shades/+/myTiltPos/set");
-    this->unsubscribe("shades/+/sunFlag/set");
-    this->unsubscribe("groups/+/direction/set");
-    this->unsubscribe("shades/+/sunny/set");
-    this->unsubscribe("shades/+/windy/set");
-    this->unsubscribe("shades/+/position/set");
-    this->unsubscribe("shades/+/tiltPosition/set");
-    this->unsubscribe("groups/+/direction/set");
-    this->unsubscribe("groups/+/sunFlag/set");
-    this->unsubscribe("groups/+/sunny/set");
-    this->unsubscribe("groups/+/windy/set");
+    for(const char *topic : kCommandTopics) this->unsubscribe(topic);
     mqttClient.disconnect();
   }
   return true;
@@ -273,8 +260,8 @@ bool MQTTClass::unsubscribe(const char *topic) {
       snprintf(top, sizeof(top), "%s/%s", settings.MQTT.rootTopic, topic);
     else
       strlcpy(top, topic, sizeof(top));
-    Serial.print("MQTT Unsubscribed from:");
-    Serial.println(top);
+    LOG_I("MQTT Unsubscribed from:");
+    LOG_ILN(top);
     return mqttClient.unsubscribe(top);
   }
   return true;
@@ -287,8 +274,8 @@ bool MQTTClass::subscribe(const char *topic) {
       snprintf(top, sizeof(top), "%s/%s", settings.MQTT.rootTopic, topic);
     else
       strlcpy(top, topic, sizeof(top));
-    Serial.print("MQTT Subscribed to:");
-    Serial.println(top);
+    LOG_I("MQTT Subscribed to:");
+    LOG_ILN(top);
     return mqttClient.subscribe(top);
   }
   return true;

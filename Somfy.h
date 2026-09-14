@@ -9,6 +9,7 @@
 #define SOMFY_MAX_GROUPED_SHADES 32
 #define SOMFY_MAX_ROOMS 16
 #define SOMFY_MAX_REPEATERS 7
+#define SOMFY_MAX_REPEATS 40 // Une trame dure ~140 ms et l'émission bloque loop() : au-delà, réseau et MQTT décrochent.
 
 #define SECS_TO_MILLIS(x) ((x) * 1000)
 #define MINS_TO_MILLIS(x) SECS_TO_MILLIS((x) * 60)
@@ -117,10 +118,12 @@ struct somfy_rx_t {
 // A simple FIFO queue to hold rx buffers.  We are using
 // a byte index to make it so we don't have to reorganize
 // the storage each time we push or pop.
+// La file est remplie par l'ISR de réception et vidée par loop() : length et index sont partagés
+// entre les deux contextes et toute manipulation se fait sous section critique (rxQueueMux).
 struct somfy_rx_queue_t {
   void init();
-  uint8_t length = 0;
-  uint8_t index[MAX_RX_BUFFER];
+  volatile uint8_t length = 0;
+  volatile uint8_t index[MAX_RX_BUFFER];
   somfy_rx_t items[MAX_RX_BUFFER];
   void push(somfy_rx_t *rx);
   bool pop(somfy_rx_t *rx);
@@ -266,13 +269,14 @@ class SomfyLinkedRemote : public SomfyRemote {
 class SomfyShade : public SomfyRemote {
   protected:
     uint8_t shadeId = 255;
-    uint64_t moveStart = 0;
-    uint64_t tiltStart = 0;
-    uint64_t noSunStart = 0;
-    uint64_t sunStart = 0;
-    uint64_t windStart = 0;
-    uint64_t windLast = 0;
-    uint64_t noWindStart = 0;
+    // Horodatages millis() : 32 bits, comparés par soustraction (robuste au débordement).
+    uint32_t moveStart = 0;
+    uint32_t tiltStart = 0;
+    uint32_t noSunStart = 0;
+    uint32_t sunStart = 0;
+    uint32_t windStart = 0;
+    uint32_t windLast = 0;
+    uint32_t noWindStart = 0;
     bool noSunDone = true;
     bool sunDone = true;
     bool windDone = true;
@@ -282,16 +286,14 @@ class SomfyShade : public SomfyRemote {
     bool settingMyPos = false;
     bool settingPos = false;
     bool settingTiltPos = false;
-    uint32_t awaitMy = 0;
+    uint32_t awaitMy = 0;       // Instant où la position My peut être enregistrée (moteur immobilisé).
+    uint32_t pendingTiltAt = 0; // Instant où reprendre le mouvement de tilt après un arrêt.
   public:
     uint8_t roomId = 0;
     int8_t sortOrder = 0;
     bool flipPosition = false;
     shade_types shadeType = shade_types::roller;
     tilt_types tiltType = tilt_types::none;
-    #ifdef USE_NVS
-    void load();
-    #endif
     float currentPos = 0.0f;
     float currentTiltPos = 0.0f;
     int8_t lastMovement = 0;
@@ -323,7 +325,6 @@ class SomfyShade : public SomfyRemote {
     void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1);
     void setTiltMovement(int8_t dir);
     void setMovement(int8_t dir);
-    void setTarget(float target);
     bool isAtTarget();
     bool isToggle();
     void moveToTarget(float pos, float tilt = -1.0f);
@@ -523,11 +524,10 @@ class Transceiver {
 };
 class SomfyShadeController {
   protected:
-    uint8_t m_shadeIds[SOMFY_MAX_SHADES];
     uint32_t lastCommit = 0;
   public:
-    bool useNVS();
     bool isDirty = false;
+    bool configLoaded = false; // Faux tant qu'aucune configuration valide n'a été chargée : commit() refuse alors d'écraser le fichier.
     uint32_t startingAddress;
     uint8_t getNextRoomId();
     uint8_t getNextShadeId();
@@ -566,6 +566,8 @@ class SomfyShadeController {
     uint8_t shadeCount();
     uint8_t groupCount();
     void updateGroupFlags();
+    void pruneGroupLinks();
+    const char *radioPinConflict(JsonObject &obj);
     SomfyShade * getShadeById(uint8_t shadeId);
     SomfyRoom * getRoomById(uint8_t roomId);
     SomfyGroup * getGroupById(uint8_t groupId);
@@ -576,12 +578,9 @@ class SomfyShadeController {
     void emitState(uint8_t num = 255);
     void publish();
     void processWaitingFrame();
-    void commit();
-    void writeBackup();
+    bool commit();
+    bool writeBackup();
     bool loadShadesFile(const char *filename);
-    #ifdef USE_NVS
-    bool loadLegacy();
-    #endif
 };
 
 #endif

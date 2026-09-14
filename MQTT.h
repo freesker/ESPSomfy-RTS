@@ -3,9 +3,13 @@
 #include <Arduino.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#define MQTT_RECONNECT_MIN_MS 10000UL
+#define MQTT_RECONNECT_MAX_MS 300000UL
+#define MQTT_SOCKET_TIMEOUT_S 3
 class MQTTClass {
   public:
-    uint64_t lastConnect = 0;
+    uint32_t lastConnect = 0;
+    uint32_t reconnectDelay = MQTT_RECONNECT_MIN_MS;
     bool suspended = false;
     char clientId[32] = {'\0'};
     bool begin();

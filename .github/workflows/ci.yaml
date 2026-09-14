@@ -2,12 +2,14 @@ name: ESPSomfy-RTS
 
 on: [push, pull_request]
 
+# Les versions ci-dessous doivent rester identiques à celles de release.yaml : la CI compile
+# exactement ce qui est publié (core, bibliothèques, esptool, FQBN).
 env:
-  ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS: "https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_dev_index.json"
-  ARDUINO_CLI_VERSION: "0.x"
-  ARDUINO_ESP32_VERSION: "2.0.10"
-  ARDUINO_JSON_VERSION: "6.21.3"
-  ESPTOOL_VERSION: "4.6"
+  ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS: "https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json"
+  ARDUINO_CLI_VERSION: "1.x"
+  ARDUINO_ESP32_VERSION: "2.0.17"
+  ARDUINO_JSON_VERSION: "6.21.5"
+  ESPTOOL_VERSION: "4.7"
   LITTLEFS_VERSION: "v2.5.1"
   MKLITTLEFS_VERSION: "3.1.0"
   PUB_SUB_CLIENT_VERSION: "2.8.0"
@@ -16,23 +18,65 @@ env:
   WEB_SOCKET_VERSION: "2.4.0"
 
 jobs:
+  check:
+    name: Cohérence et analyse statique
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Vérifier que la version est unique
+        run: |
+          APP=$(tr -d '[:space:]' < data/appversion)
+          FW=$(sed -nE 's/^#define FW_VERSION "v([^"]+)"/\1/p' ConfigSettings.h)
+          JS=$(sed -nE "s/^\s*appVersion = 'v([^']+)';/\1/p" data/index.js)
+          echo "appversion=$APP FW_VERSION=$FW index.js=$JS"
+          test "$APP" = "$FW" || { echo "FW_VERSION (ConfigSettings.h) ne correspond pas à data/appversion"; exit 1; }
+          test "$APP" = "$JS" || { echo "appVersion (index.js) ne correspond pas à data/appversion"; exit 1; }
+
+      - name: Analyse statique (cppcheck)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq cppcheck
+          cppcheck --enable=warning,performance,portability --inline-suppr --std=c++17 \
+            --suppress=missingInclude --suppress=missingIncludeSystem --suppress=unusedFunction \
+            --error-exitcode=1 -DARDUINO=10819 -DESP32 -DCONFIG_IDF_TARGET_ESP32=1 \
+            --quiet *.cpp *.h SomfyController.ino
+        continue-on-error: true
+
+  lint:
+    name: Interface web (ESLint, html-validate)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Lint
+        run: |
+          npm install --no-audit --no-fund
+          npm run lint
+
   littlefs:
     name: LittleFS
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Checkout mklittlefs
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: earlephilhower/mklittlefs
           path: mklittlefs
           ref: ${{ env.MKLITTLEFS_VERSION }}
 
       - name: Checkout LittleFS
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: littlefs-project/littlefs
           path: mklittlefs/littlefs
@@ -42,12 +86,23 @@ jobs:
         run: |
           make -C mklittlefs
 
+      - name: Prepare web assets
+        # Copie de data/ avec la version injectée dans les URL (cache-busting) et une version gzip
+        # de chaque ressource texte : le firmware sert le .gz quand il existe (403 Ko -> 64 Ko).
+        run: |
+          APP=$(tr -d '[:space:]' < data/appversion)
+          rm -rf build/data && mkdir -p build && cp -r data build/data
+          sed -i -E "s/\?v=[0-9A-Za-z.]+/?v=$APP/g" build/data/index.html
+          sed -i -E "s/appVersion = 'v[0-9A-Za-z.]+'/appVersion = 'v$APP'/" build/data/index.js
+          for f in build/data/index.js build/data/index.html build/data/main.css build/data/widgets.css build/data/icons.css build/data/icon.svg; do gzip -9 -k -n "$f"; done
+          ls -la build/data
+
       - name: Create LittleFS
         run: |
-          ./mklittlefs/mklittlefs --create data --size 1441792 SomfyController.littlefs.bin
+          ./mklittlefs/mklittlefs --create build/data --size 1441792 SomfyController.littlefs.bin
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: LittleFS
           path: SomfyController.littlefs.bin
@@ -65,51 +120,47 @@ jobs:
           - board: esp32
             addr_bootloader: 0x1000
             chip: ESP32
-            fqbn: esp32:esp32:esp32
+            fqbn: esp32:esp32:esp32wrover:PartitionScheme=default,FlashMode=qio,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none
             name: ESP32
-          - board: lolin_c3_mini
+          - board: esp32c3
             addr_bootloader: 0x0
             chip: ESP32-C3
-            fqbn: esp32:esp32:lolin_c3_mini
-            name: LOLIN-C3-mini
-          - board: lolin_s2_mini
+            fqbn: esp32:esp32:esp32c3:JTAGAdapter=default,CDCOnBoot=cdc,PartitionScheme=default,CPUFreq=160,FlashMode=qio,FlashFreq=80,FlashSize=4M,UploadSpeed=921600,DebugLevel=none,EraseFlash=none
+            name: ESP32C3
+          - board: esp32s2
             addr_bootloader: 0x1000
             chip: ESP32-S2
-            fqbn: esp32:esp32:lolin_s2_mini
-            name: LOLIN-S2-mini
-          - board: lolin_s3_mini
+            fqbn: esp32:esp32:esp32s2:JTAGAdapter=default,CDCOnBoot=cdc,MSCOnBoot=default,DFUOnBoot=default,UploadMode=default,PSRAM=disabled,PartitionScheme=default,CPUFreq=240,FlashMode=qio,FlashFreq=80,FlashSize=4M,UploadSpeed=921600,DebugLevel=none,EraseFlash=none
+            name: ESP32S2
+          - board: esp32s3
             addr_bootloader: 0x0
             chip: ESP32-S3
-            fqbn: esp32:esp32:lolin_s3_mini
-            name: LOLIN-S3-mini
+            fqbn: esp32:esp32:esp32s3:JTAGAdapter=default,PSRAM=disabled,FlashMode=qio,FlashSize=4M,LoopCore=1,EventsCore=1,USBMode=hwcdc,CDCOnBoot=cdc,MSCOnBoot=default,DFUOnBoot=default,UploadMode=default,PartitionScheme=default,CPUFreq=240,UploadSpeed=921600,DebugLevel=none,EraseFlash=none
+            name: ESP32S3
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           path: SomfyController
 
       - name: Get LittleFS
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: LittleFS
 
       - name: Install Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Upgrade pip
-        run: |
-          python -m pip install --upgrade pip
-          pip --version
-
       - name: Install ESPTool
         run: |
+          python -m pip install --upgrade pip
           pip install esptool==${{ env.ESPTOOL_VERSION }}
 
       - name: Install Arduino CLI
-        uses: arduino/setup-arduino-cli@v1
+        uses: arduino/setup-arduino-cli@v2
         with:
           version: ${{ env.ARDUINO_CLI_VERSION }}
 
@@ -140,7 +191,7 @@ jobs:
             0x290000 SomfyController.littlefs.bin
 
       - name: Upload ${{ matrix.name }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
           path: |

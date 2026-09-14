@@ -1,3 +1,4 @@
+#include "Log.h"
 #include "WResp.h"
 void JsonSockEvent::beginEvent(WebSocketsServer *server, const char *evt, char *buff, size_t buffSize) {
   this->server = server;
@@ -5,18 +6,25 @@ void JsonSockEvent::beginEvent(WebSocketsServer *server, const char *evt, char *
   this->buffSize = buffSize;
   this->_nocomma = true;
   this->_closed = false;
+  this->_overflow = false;
   snprintf(this->buff, buffSize, "42[%s,", evt);
 }
 void JsonSockEvent::closeEvent() {
   if(!this->_closed) {
-    if(strlen(this->buff) < buffSize) strcat(this->buff, "]");
-    else this->buff[buffSize - 1] = ']';
+    size_t len = strlen(this->buff);
+    if(len < this->buffSize - 1) { this->buff[len] = ']'; this->buff[len + 1] = '\0'; }
+    else { this->buff[this->buffSize - 2] = ']'; this->buff[this->buffSize - 1] = '\0'; }
   }
   this->_nocomma = true;
   this->_closed = true;
 }
 void JsonSockEvent::endEvent(uint8_t num) {
   this->closeEvent();
+  // Un événement tronqué serait un JSON invalide côté client : mieux vaut ne rien émettre.
+  if(this->_overflow) {
+    LOG_ELN("Socket event dropped: exceeded buffer size");
+    return;
+  }
   if(num == 255) this->server->broadcastTXT(this->buff);
   else this->server->sendTXT(num, this->buff);
 }
@@ -24,8 +32,8 @@ void JsonSockEvent::_safecat(const char *val, bool escape) {
   size_t len = (escape ? this->calcEscapedLength(val) : strlen(val)) + strlen(this->buff);
   if(escape) len += 2;
   if(len >= this->buffSize) {
-    Serial.printf("Socket exceeded buffer size %d - %d\n", this->buffSize, len);
-    Serial.println(this->buff);
+    LOG_EF("Socket exceeded buffer size %d - %d\n", this->buffSize, len);
+    this->_overflow = true;
     return;
   }
   if(escape) strcat(this->buff, "\"");
@@ -48,7 +56,7 @@ void JsonResponse::endResponse() {
 void JsonResponse::send() {
     if(!this->_headersSent) server->send_P(200, "application/json", this->buff);
     else server->sendContent(this->buff);
-    //Serial.printf("Sent %d bytes %d\n", strlen(this->buff), this->buffSize);
+    //LOG_DF("Sent %d bytes %d\n", strlen(this->buff), this->buffSize);
     this->buff[0] = 0x00;
     this->_headersSent = true;
 }
@@ -106,11 +114,11 @@ void JsonFormatter::addElem(const char *name, const char *val) {
   this->_safecat(val, true);
 }
 void JsonFormatter::addElem(const char *val) { this->addElem(nullptr, val); }
-void JsonFormatter::addElem(float fval) { sprintf(this->_numbuff, "%.4f", fval); this->_appendNumber(nullptr); }
-void JsonFormatter::addElem(int8_t nval) { sprintf(this->_numbuff, "%d", nval); this->_appendNumber(nullptr); }
-void JsonFormatter::addElem(uint8_t nval) { sprintf(this->_numbuff, "%u", nval); this->_appendNumber(nullptr); }
-void JsonFormatter::addElem(int32_t nval) { sprintf(this->_numbuff, "%ld", (long)nval); this->_appendNumber(nullptr); }
-void JsonFormatter::addElem(uint32_t nval) { sprintf(this->_numbuff, "%lu", (unsigned long)nval); this->_appendNumber(nullptr); }
+void JsonFormatter::addElem(float fval) { snprintf(this->_numbuff, sizeof(this->_numbuff), "%.4f", fval); this->_appendNumber(nullptr); }
+void JsonFormatter::addElem(int8_t nval) { snprintf(this->_numbuff, sizeof(this->_numbuff), "%d", nval); this->_appendNumber(nullptr); }
+void JsonFormatter::addElem(uint8_t nval) { snprintf(this->_numbuff, sizeof(this->_numbuff), "%u", nval); this->_appendNumber(nullptr); }
+void JsonFormatter::addElem(int32_t nval) { snprintf(this->_numbuff, sizeof(this->_numbuff), "%ld", (long)nval); this->_appendNumber(nullptr); }
+void JsonFormatter::addElem(uint32_t nval) { snprintf(this->_numbuff, sizeof(this->_numbuff), "%lu", (unsigned long)nval); this->_appendNumber(nullptr); }
 
 /*
 void JsonFormatter::addElem(int16_t nval) { sprintf(this->_numbuff, "%d", nval); this->_appendNumber(nullptr); }
@@ -148,7 +156,7 @@ void JsonFormatter::_safecat(const char *val, bool escape) {
 void JsonFormatter::_appendNumber(const char *name) { this->appendElem(name); this->_safecat(this->_numbuff); } 
 uint32_t JsonFormatter::calcEscapedLength(const char *raw) {
   uint32_t len = 0;
-  for(size_t i = strlen(raw); i > 0; i--) {
+  for(size_t i = 0; raw[i] != '\0'; i++) { // l'ancienne boucle lisait raw[strlen] et sautait raw[0]
     switch(raw[i]) {
       case '"':
       case '/':

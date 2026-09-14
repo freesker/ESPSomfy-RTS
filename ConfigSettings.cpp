@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include "Log.h"
 #include <LittleFS.h>       // https://github.com/espressif/arduino-esp32/tree/master/libraries/LittleFS
 #include <time.h>
 #include <WiFi.h>
@@ -42,7 +43,7 @@ void appver_t::parse(const char *ver) {
   // Now lets parse this pig.
   memset(this, 0x00, sizeof(appver_t));
   strlcpy(this->name, ver, sizeof(this->name));
-  char num[3];
+  char num[4]; // trois chiffres et le terminateur
   uint8_t i = 0;
   memset(num, 0x00, sizeof(num));
   for(uint8_t j = 0; j < 3 && i < strlen(ver);) {
@@ -75,7 +76,7 @@ void appver_t::parse(const char *ver) {
       break;
   }
   this->build = static_cast<uint8_t>(atoi(num) & 0xFF);
-  if(strlen(ver) < i) strlcpy(this->suffix, &ver[i], sizeof(this->suffix));
+  if(i < strlen(ver)) strlcpy(this->suffix, &ver[i], sizeof(this->suffix));
 }
 bool appver_t::toJSON(JsonObject &obj) {
   obj["name"] = this->name;
@@ -101,43 +102,28 @@ void appver_t::toJSON(JsonSockEvent *json) {
 }
 
 bool BaseSettings::load() { return true; }
-bool BaseSettings::loadFile(const char *filename) { 
-  size_t filesize = 10;
-  String data = "";
-  if(LittleFS.exists(filename)) {
-    File file = LittleFS.open(filename, "r");
-    filesize += file.size();
-    while(file.available()) {
-      char c = file.read();
-      data += c;
-    }
-    DynamicJsonDocument doc(filesize);
-    deserializeJson(doc, data);
-    JsonObject obj = doc.as<JsonObject>();
-    this->fromJSON(obj);
-    file.close();
-  }
-  return false; 
-}
-bool BaseSettings::saveFile(const char *filename) {
-  File file = LittleFS.open(filename, "w");
-  DynamicJsonDocument doc(2048);
-  JsonObject obj = doc.as<JsonObject>();
-  this->toJSON(obj);
-  serializeJson(doc, file);
-  file.close();
+bool BaseSettings::parseSecretString(JsonObject &obj, const char *prop, char *pdest, size_t size, bool allowEmpty) {
+  if(!obj.containsKey(prop) || !obj[prop].is<const char*>()) return false;
+  const char *val = obj[prop].as<const char*>();
+  if(strcmp(val, SECRET_MASK) == 0) return false;
+  if(!allowEmpty && strlen(val) == 0) return false;
+  strlcpy(pdest, val, size);
   return true;
 }
+// ArduinoJson renvoie un pointeur nul pour une valeur qui n'est pas une chaîne (null, nombre, objet) :
+// strlcpy plantait alors l'appareil sur un simple {"hostname":null}.
 bool BaseSettings::parseValueString(JsonObject &obj, const char *prop, char *pdest, size_t size) {
-  if(obj.containsKey(prop)) strlcpy(pdest, obj[prop], size);
+  if(!obj[prop].is<const char*>()) return false;
+  strlcpy(pdest, obj[prop].as<const char*>(), size);
   return true;
 }
 bool BaseSettings::parseIPAddress(JsonObject &obj, const char *prop, IPAddress *pdest) {
-  if(obj.containsKey(prop)) {
-    char buff[16];
-    strlcpy(buff, obj[prop], sizeof(buff));
-    pdest->fromString(buff);
-  }
+  if(!obj[prop].is<const char*>()) return false;
+  char buff[16];
+  strlcpy(buff, obj[prop].as<const char*>(), sizeof(buff));
+  IPAddress parsed;
+  if(!parsed.fromString(buff)) return false;
+  *pdest = parsed;
   return true;
 }
 int BaseSettings::parseValueInt(JsonObject &obj, const char *prop, int defVal) {
@@ -178,7 +164,7 @@ bool ConfigSettings::begin() {
       sprintf(this->chipModel, "UNK%d", static_cast<int>(ci.model));
       break;
   }
-  Serial.printf("Chip Model ESP32-%s\n", this->chipModel);
+  LOG_DF("Chip Model ESP32-%s\n", this->chipModel);
   this->fwVersion.parse(FW_VERSION);
   uint64_t mac = ESP.getEfuseMac();
   for(int i=0; i<17; i=i+8) {
@@ -206,7 +192,7 @@ bool ConfigSettings::load() {
   this->ssdpBroadcast = pref.getBool("ssdpBroadcast", true);
   this->checkForUpdate = pref.getBool("checkForUpdate", true);
   this->connType = static_cast<conn_types_t>(pref.getChar("connType", 0x00));
-  //Serial.printf("Preference GFG Free Entries: %d\n", pref.freeEntries());
+  //LOG_DF("Preference GFG Free Entries: %d\n", pref.freeEntries());
   pref.end();
   if(this->connType == conn_types_t::unset) {
     // We are doing this to convert the data from previous versions.
@@ -267,7 +253,7 @@ bool ConfigSettings::fromJSON(JsonObject &obj) {
 }
 void ConfigSettings::print() {
   this->Security.print();
-  Serial.printf("Connection Type: %u\n", (unsigned int) this->connType);
+  LOG_DF("Connection Type: %u\n", (unsigned int) this->connType);
   this->NTP.print();
   if(this->connType == conn_types_t::wifi || this->connType == conn_types_t::unset) this->WIFI.print();
   if(this->connType == conn_types_t::ethernet || this->connType == conn_types_t::ethernetpref) this->Ethernet.print();
@@ -315,7 +301,7 @@ void MQTTSettings::toJSON(JsonResponse &json) {
   json.addElem("hostname", this->hostname);
   json.addElem("port", (uint32_t)this->port);
   json.addElem("username", this->username);
-  json.addElem("password", this->password);
+  json.addElem("password", strlen(this->password) > 0 ? SECRET_MASK : "");
   json.addElem("rootTopic", this->rootTopic);
   json.addElem("discoTopic", this->discoTopic);
 }
@@ -327,7 +313,7 @@ bool MQTTSettings::toJSON(JsonObject &obj) {
   obj["hostname"] = this->hostname;
   obj["port"] = this->port;
   obj["username"] = this->username;
-  obj["password"] = this->password;
+  obj["password"] = strlen(this->password) > 0 ? SECRET_MASK : "";
   obj["rootTopic"] = this->rootTopic;
   obj["discoTopic"] = this->discoTopic;
   return true;
@@ -338,7 +324,7 @@ bool MQTTSettings::fromJSON(JsonObject &obj) {
   this->parseValueString(obj, "protocol", this->protocol, sizeof(this->protocol));
   this->parseValueString(obj, "hostname", this->hostname, sizeof(this->hostname));
   this->parseValueString(obj, "username", this->username, sizeof(this->username));
-  this->parseValueString(obj, "password", this->password, sizeof(this->password));
+  this->parseSecretString(obj, "password", this->password, sizeof(this->password));
   this->parseValueString(obj, "rootTopic", this->rootTopic, sizeof(this->rootTopic));
   this->parseValueString(obj, "discoTopic", this->discoTopic, sizeof(this->discoTopic));
   if(obj.containsKey("port")) this->port = obj["port"];
@@ -394,11 +380,7 @@ bool NTPSettings::save() {
   pref.putString("ntpServer", this->ntpServer);
   pref.putString("posixZone", this->posixZone);
   pref.end();
-  struct tm dt;
-  configTime(0, 0, this->ntpServer);
-  if(!getLocalTime(&dt)) return false;
-  setenv("TZ", this->posixZone, 1);
-  return true;
+  return this->apply();
 }
 bool NTPSettings::load() {
   pref.begin("NTP");
@@ -408,10 +390,10 @@ bool NTPSettings::load() {
   return true;
 }
 void NTPSettings::print() {
-  Serial.println("NTP Settings ");
-  Serial.print(this->ntpServer);
-  Serial.print(" TZ:");
-  Serial.println(this->posixZone);  
+  LOG_DLN("NTP Settings ");
+  LOG_D(this->ntpServer);
+  LOG_D(" TZ:");
+  LOG_DLN(this->posixZone);  
 }
 bool NTPSettings::fromJSON(JsonObject &obj) {
   this->parseValueString(obj, "ntpServer", this->ntpServer, sizeof(this->ntpServer));
@@ -428,11 +410,11 @@ bool NTPSettings::toJSON(JsonObject &obj) {
   obj["posixZone"] = this->posixZone;
   return true;
 }
-bool NTPSettings::apply() { 
-  struct tm dt;
-  configTime(0, 0, this->ntpServer);
-  if(!getLocalTime(&dt)) return false;
-  setenv("TZ", this->posixZone, 1);
+// configTzTime applique le fuseau immédiatement et lance SNTP sans attendre : l'ancien getLocalTime
+// bloquait 5 s au démarrage (avant même que le réseau ne soit monté) et le fuseau n'était alors jamais
+// appliqué avant une nouvelle sauvegarde des réglages.
+bool NTPSettings::apply() {
+  configTzTime(this->posixZone, this->ntpServer);
   return true;
 }
 IPSettings::IPSettings() {}
@@ -505,7 +487,7 @@ bool IPSettings::load() {
     pref.getString("dns2", buff, sizeof(buff));
     this->dns2.fromString(buff);
   }
-  Serial.printf("Preference IP Free Entries: %d\n", pref.freeEntries());
+  LOG_DF("Preference IP Free Entries: %d\n", pref.freeEntries());
   pref.end();
   return true;
 }
@@ -516,24 +498,28 @@ bool SecuritySettings::begin() {
 bool SecuritySettings::fromJSON(JsonObject &obj) {
   if(obj.containsKey("type")) this->type = static_cast<security_types>(obj["type"].as<uint8_t>());
   this->parseValueString(obj, "username", this->username, sizeof(this->username));
-  this->parseValueString(obj, "password", this->password, sizeof(this->password));
-  this->parseValueString(obj, "pin", this->pin, sizeof(this->pin));
+  this->parseSecretString(obj, "password", this->password, sizeof(this->password), false);
+  this->parseSecretString(obj, "pin", this->pin, sizeof(this->pin), false);
   if(obj.containsKey("permissions")) this->permissions = obj["permissions"];
   return true;
 }
 bool SecuritySettings::toJSON(JsonObject &obj) {
   obj["type"] = static_cast<uint8_t>(this->type);
   obj["username"] = this->username;
-  obj["password"] = this->password;
-  obj["pin"] = this->pin;
+  obj["password"] = strlen(this->password) > 0 ? SECRET_MASK : "";
+  obj["hasPassword"] = strlen(this->password) > 0;
+  obj["pin"] = "";
+  obj["hasPin"] = strlen(this->pin) > 0;
   obj["permissions"] = this->permissions;
   return true;  
 }
 void SecuritySettings::toJSON(JsonResponse &json) {
   json.addElem("type", static_cast<uint8_t>(this->type));
   json.addElem("username", this->username);
-  json.addElem("password", this->password);
-  json.addElem("pin", this->pin);
+  json.addElem("password", strlen(this->password) > 0 ? SECRET_MASK : "");
+  json.addElem("hasPassword", strlen(this->password) > 0);
+  json.addElem("pin", "");
+  json.addElem("hasPin", strlen(this->pin) > 0);
   json.addElem("permissions", this->permissions);
 }
 
@@ -544,9 +530,23 @@ bool SecuritySettings::save() {
   pref.putString("username", this->username);
   pref.putString("password", this->password);
   pref.putString("pin", this->pin);
+  pref.putString("secret", this->secret);
   pref.putChar("permissions", this->permissions);
   pref.end();
   return true;
+}
+// Le jeton d'API est un HMAC dont la clé doit rester inconnue des clients : un secret de 256 bits
+// tiré au premier démarrage et conservé en NVS, jamais dérivé d'une valeur publique comme le serverId.
+void SecuritySettings::ensureSecret() {
+  if(strlen(this->secret) == 64) return;
+  for(uint8_t i = 0; i < 8; i++) {
+    uint32_t r = esp_random();
+    snprintf(&this->secret[i * 8], 9, "%08lx", (unsigned long)r);
+  }
+  this->secret[64] = '\0';
+  pref.begin("SEC");
+  pref.putString("secret", this->secret);
+  pref.end();
 }
 bool SecuritySettings::load() {
   pref.begin("SEC");
@@ -554,21 +554,23 @@ bool SecuritySettings::load() {
   if(pref.isKey("username")) pref.getString("username", this->username, sizeof(this->username));
   if(pref.isKey("password")) pref.getString("password", this->password, sizeof(this->password));
   if(pref.isKey("pin")) pref.getString("pin", this->pin, sizeof(this->pin));
+  if(pref.isKey("secret")) pref.getString("secret", this->secret, sizeof(this->secret));
   if(pref.isKey("permissions")) this->permissions = pref.getChar("permissions", this->permissions);
   pref.end();
+  this->ensureSecret();
   return true;
 }
 void SecuritySettings::print() {
-  Serial.print("SECURITY   Type:");
-  Serial.print(static_cast<uint8_t>(this->type));
-  Serial.print(" Username:[");
-  Serial.print(this->username);
-  Serial.print("] Password:[");
-  Serial.print(this->password);
-  Serial.print("] Pin:[");
-  Serial.print(this->pin);
-  Serial.print("] Permissions:");
-  Serial.println(this->permissions);
+  LOG_D("SECURITY   Type:");
+  LOG_D(static_cast<uint8_t>(this->type));
+  LOG_D(" Username:[");
+  LOG_D(this->username);
+  LOG_D("] Password:[");
+  LOG_D(strlen(this->password) > 0 ? "set" : "none");
+  LOG_D("] Pin:[");
+  LOG_D(strlen(this->pin) > 0 ? "set" : "none");
+  LOG_D("] Permissions:");
+  LOG_DLN(this->permissions);
 }
 
 WifiSettings::WifiSettings() {}
@@ -578,21 +580,30 @@ bool WifiSettings::begin() {
 }
 bool WifiSettings::fromJSON(JsonObject &obj) {
   this->parseValueString(obj, "ssid", this->ssid, sizeof(this->ssid));
-  this->parseValueString(obj, "passphrase", this->passphrase, sizeof(this->passphrase));
+  this->parseSecretString(obj, "passphrase", this->passphrase, sizeof(this->passphrase));
+  if(obj["apPassphrase"].is<const char*>()) {
+    const char *ap = obj["apPassphrase"].as<const char*>();
+    size_t len = strlen(ap);
+    if(len == 0 || (len >= 8 && len <= 63)) strlcpy(this->apPassphrase, ap, sizeof(this->apPassphrase));
+  }
   if(obj.containsKey("roaming")) this->roaming = obj["roaming"];
   if(obj.containsKey("hidden")) this->hidden = obj["hidden"];
   return true;
 }
 bool WifiSettings::toJSON(JsonObject &obj) {
   obj["ssid"] = this->ssid;
-  obj["passphrase"] = this->passphrase;
+  obj["passphrase"] = strlen(this->passphrase) > 0 ? SECRET_MASK : "";
+  obj["hasPassphrase"] = strlen(this->passphrase) > 0;
+  obj["apPassphrase"] = this->apPassphrase;
   obj["roaming"] = this->roaming;
   obj["hidden"] = this->hidden;
   return true;
 }
 void WifiSettings::toJSON(JsonResponse &json) {
   json.addElem("ssid", this->ssid);
-  json.addElem("passphrase", this->passphrase);
+  json.addElem("passphrase", strlen(this->passphrase) > 0 ? SECRET_MASK : "");
+  json.addElem("hasPassphrase", strlen(this->passphrase) > 0);
+  json.addElem("apPassphrase", this->apPassphrase);
   json.addElem("roaming", this->roaming);
   json.addElem("hidden", this->hidden);
 }
@@ -602,6 +613,7 @@ bool WifiSettings::save() {
   pref.clear();
   pref.putString("ssid", this->ssid);
   pref.putString("passphrase", this->passphrase);
+  pref.putString("apPass", this->apPassphrase);
   pref.putBool("roaming", this->roaming);
   pref.putBool("hidden", this->hidden);
   pref.end();
@@ -613,10 +625,23 @@ bool WifiSettings::load() {
   pref.getString("passphrase", this->passphrase, sizeof(this->passphrase));
   this->ssid[sizeof(this->ssid) - 1] = '\0';
   this->passphrase[sizeof(this->passphrase) - 1] = '\0';
+  if(pref.isKey("apPass")) pref.getString("apPass", this->apPassphrase, sizeof(this->apPassphrase));
   this->roaming = pref.getBool("roaming", true);
   this->hidden = pref.getBool("hidden", false);
   pref.end();
+  this->ensureApPassphrase();
   return true;
+}
+// Le point d'accès de secours n'est ouvert que tant qu'aucun réseau n'a été configuré : ensuite il est
+// protégé par une clé WPA2 aléatoire, affichée dans les réglages réseau et sur le port série.
+void WifiSettings::ensureApPassphrase() {
+  if(strlen(this->apPassphrase) >= 8) return;
+  static const char alphabet[] = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  for(uint8_t i = 0; i < 12; i++) this->apPassphrase[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
+  this->apPassphrase[12] = '\0';
+  pref.begin("WIFI");
+  pref.putString("apPass", this->apPassphrase);
+  pref.end();
 }
 String WifiSettings::mapEncryptionType(int type) {
   switch(type) {
@@ -636,32 +661,34 @@ String WifiSettings::mapEncryptionType(int type) {
   return "Unknown";
 }
 void WifiSettings::print() {
-  Serial.println("WIFI Settings");
-  Serial.print(" SSID: [");
-  Serial.print(this->ssid);
-  Serial.print("] PassPhrase: [");
-  Serial.print(this->passphrase);
-  Serial.println("]");  
+  LOG_ILN("WIFI Settings");
+  LOG_I(" SSID: [");
+  LOG_I(this->ssid);
+  LOG_I("] PassPhrase: [");
+  LOG_I(strlen(this->passphrase) > 0 ? "set" : "none");
+  LOG_ILN("]");
+  LOG_I(" Fallback hotspot passphrase: ");
+  LOG_ILN(this->apPassphrase);
 }
 void WifiSettings::printNetworks() {
   int n = WiFi.scanNetworks(false, false);
-  Serial.print("Scanned ");
-  Serial.print(n);
-  Serial.println(" Networks...");
+  LOG_D("Scanned ");
+  LOG_D(n);
+  LOG_DLN(" Networks...");
   String network;
   for(int i = 0; i < n; i++) {
-    if(WiFi.SSID(i).compareTo(this->ssid) == 0) Serial.print("*");
-    else Serial.print(" ");
-    Serial.print(i);
-    Serial.print(": ");
-    Serial.print(WiFi.SSID(i));
-    Serial.print(" (");
-    Serial.print(WiFi.RSSI(i));
-    Serial.print("dBm) CH:");
-    Serial.print(WiFi.channel(i));
-    Serial.print(" MAC:");
-    Serial.print(WiFi.BSSIDstr(i));
-    Serial.println();
+    if(WiFi.SSID(i).compareTo(this->ssid) == 0) LOG_I("*");
+    else LOG_I(" ");
+    LOG_I(i);
+    LOG_I(": ");
+    LOG_I(WiFi.SSID(i));
+    LOG_I(" (");
+    LOG_I(WiFi.RSSI(i));
+    LOG_I("dBm) CH:");
+    LOG_I(WiFi.channel(i));
+    LOG_I(" MAC:");
+    LOG_I(WiFi.BSSIDstr(i));
+    LOG_ILN();
   }
 
 }
@@ -708,6 +735,10 @@ void EthernetSettings::toJSON(JsonResponse &json) {
 }
 
 bool EthernetSettings::usesPin(uint8_t pin) {
+#if CONFIG_IDF_TARGET_ESP32
+  // Broches RMII fixes de l'EMAC : TXD0, TX_EN, TXD1, RXD0, RXD1, CRS_DV.
+  if(pin == 19 || pin == 21 || pin == 22 || pin == 25 || pin == 26 || pin == 27) return true;
+#endif
   if((this->CLKMode == 0 || this->CLKMode == 1) && pin == 0) return true;
   else if(this->CLKMode == 2 && pin == 16) return true;
   else if(this->CLKMode == 3 && pin == 17) return true;
@@ -742,14 +773,14 @@ bool EthernetSettings::load() {
   return true;
 }
 void EthernetSettings::print() {
-  Serial.println("Ethernet Settings");
-  Serial.printf("Board:%d PHYType:%d CLK:%d ADDR:%d PWR:%d MDC:%d MDIO:%d\n", this->boardType, this->phyType, this->CLKMode, this->phyAddress, this->PWRPin, this->MDCPin, this->MDIOPin);
+  LOG_ILN("Ethernet Settings");
+  LOG_IF("Board:%d PHYType:%d CLK:%d ADDR:%d PWR:%d MDC:%d MDIO:%d\n", this->boardType, this->phyType, this->CLKMode, this->phyAddress, this->PWRPin, this->MDCPin, this->MDIOPin);
 }
 void ConfigSettings::printAvailHeap() {
-  Serial.print("Max Heap: ");
-  Serial.println(ESP.getMaxAllocHeap());
-  Serial.print("Free Heap: ");
-  Serial.println(ESP.getFreeHeap());
-  Serial.print("Min Heap: ");
-  Serial.println(ESP.getMinFreeHeap());
+  LOG_D("Max Heap: ");
+  LOG_DLN(ESP.getMaxAllocHeap());
+  LOG_D("Free Heap: ");
+  LOG_DLN(ESP.getFreeHeap());
+  LOG_D("Min Heap: ");
+  LOG_DLN(ESP.getMinFreeHeap());
 }

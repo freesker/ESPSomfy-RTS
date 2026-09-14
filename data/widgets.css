@@ -1,4 +1,4 @@
-﻿.container {
+.container {
     margin: 0 auto;
     max-width: 450px;
     padding: 20px;
@@ -346,7 +346,7 @@ span.tabname-virtual-remote:after {
     content: "Virtual Remote";
 }
 
-@media only screen and (max-device-width: 480px) {
+@media only screen and (max-width: 480px) {
     body {
         margin-top: 0px;
     }

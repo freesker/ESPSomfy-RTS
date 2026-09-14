@@ -1,16 +1,23 @@
 #include <WebServer.h>
+#include <mbedtls/sha256.h>
 #include "Somfy.h"
 #ifndef webserver_h
 #define webserver_h
 class Web {
   public:
     bool uploadSuccess = false;
-    void sendCORSHeaders(WebServer &server);
+    bool uploadAuthorized = false;
+    bool uploadRejected = false;
+    mbedtls_sha256_context uploadDigest;
+    void beginUploadDigest();
+    void updateUploadDigest(const uint8_t *buf, size_t len);
+    bool verifyUploadDigest(WebServer &server);
+    bool beginFlashUpload(WebServer &server, int partition);
     void sendCacheHeaders(uint32_t seconds=604800);
     void startup();
     void handleLogin(WebServer &server);
-    void handleLogout(WebServer &server);
     void handleStreamFile(WebServer &server, const char *filename, const char *encoding);
+    void handleStaticFile(WebServer &server, const char *filename, const char *encoding, uint32_t cacheSeconds);
     void handleController(WebServer &server);
     void handleLoginContext(WebServer &server);
     void handleGetRepeaters(WebServer &server);
@@ -41,6 +48,9 @@ class Web {
     bool createAPIPinToken(const IPAddress ipAddress, const char *pin, char *token);
     bool createAPIPasswordToken(const IPAddress ipAddress, const char *username, const char *password, char *token);
     bool isAuthenticated(WebServer &server, bool cfg = false);
+    bool hasValidToken(WebServer &server, bool cfg = false);
+    bool isTokenValid(IPAddress ip, const char *token, bool cfg = false);
+    bool isOriginAllowed(WebServer &server);
 
     //void chunkRoomsResponse(WebServer &server, const char *elem = nullptr);
     //void chunkShadesResponse(WebServer &server, const char *elem = nullptr);

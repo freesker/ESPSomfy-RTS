@@ -94,7 +94,6 @@ class UPNPDeviceType {
     void setManufacturer(const char *name);
     void setManufacturerURL(const char *url);
     //char *getUSN();
-    char *getUSN(const char *st);
     char *getUSN(response_types_t responseType);
     void setChipId(uint32_t chipId);
 };

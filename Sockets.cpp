@@ -2,13 +2,16 @@
 #include <ArduinoJson.h>
 #include <WebSocketsServer.h>
 #include <esp_task_wdt.h>
+#include "Log.h"
 #include "Sockets.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "Network.h"
 #include "GitOTA.h"
+#include "Web.h"
 
 extern ConfigSettings settings;
+extern Web webServer;
 extern Network net;
 extern SomfyShadeController somfy;
 extern SocketEmitter sockEmit;
@@ -58,7 +61,7 @@ uint8_t room_t::activeClients() {
  ********************************************************************/
 /*
 void ClientSocketEvent::prepareMessage(const char *evt, const char *payload) {
-  if(strlen(payload) + 5 >= sizeof(this->msg)) Serial.printf("Socket buffer overflow %d > 2048\n", strlen(payload) + 5 + strlen(evt));
+  if(strlen(payload) + 5 >= sizeof(this->msg)) LOG_DF("Socket buffer overflow %d > 2048\n", strlen(payload) + 5 + strlen(evt));
     snprintf(this->msg, sizeof(this->msg), "42[%s,%s]", evt, payload);
 }
 void ClientSocketEvent::prepareMessage(const char *evt, JsonDocument &doc) {
@@ -75,11 +78,38 @@ void ClientSocketEvent::prepareMessage(const char *evt, JsonDocument &doc) {
 void SocketEmitter::startup() {
   
 }
+// Le handshake WebSocket n'est pas soumis à CORS : une page tierce ouverte sur le LAN pourrait
+// écouter l'état complet de l'appareil. L'en-tête Origin, s'il est présent, doit désigner l'hôte
+// contacté (les en-têtes arrivent un par un, Host précède Origin dans tous les navigateurs).
+static String wsHostHeader;
+static bool validateSocketHeader(String name, String value) {
+  if(name.equalsIgnoreCase("Host")) {
+    wsHostHeader = value;
+    int colon = wsHostHeader.indexOf(':');
+    if(colon >= 0) wsHostHeader = wsHostHeader.substring(0, colon);
+    return true;
+  }
+  if(!name.equalsIgnoreCase("Origin")) return true;
+  int ndx = value.indexOf("://");
+  if(ndx < 0) return false;
+  String origin = value.substring(ndx + 3);
+  int end = origin.indexOf('/');
+  if(end >= 0) origin = origin.substring(0, end);
+  int colon = origin.indexOf(':');
+  if(colon >= 0) origin = origin.substring(0, colon);
+  if(origin.length() == 0) return false;
+  if(wsHostHeader.length() > 0 && origin.equalsIgnoreCase(wsHostHeader)) return true;
+  if(origin.equalsIgnoreCase(settings.hostname) || origin.equalsIgnoreCase(String(settings.hostname) + ".local")) return true;
+  if(origin.equals(WiFi.localIP().toString()) || origin.equals(WiFi.softAPIP().toString()) || origin.equals(ETH.localIP().toString())) return true;
+  LOG_EF("Socket rejected: origin %s does not match host %s\n", origin.c_str(), wsHostHeader.c_str());
+  return false;
+}
 void SocketEmitter::begin() {
+  sockServer.onValidateHttpHeader(validateSocketHeader, nullptr, 0);
   sockServer.begin();
   sockServer.enableHeartbeat(20000, 10000, 3);
   sockServer.onEvent(this->wsEvent);
-  Serial.println("Socket Server Started...");
+  LOG_DLN("Socket Server Started...");
   //settings.printAvailHeap();
 }
 void SocketEmitter::loop() {
@@ -108,7 +138,7 @@ void SocketEmitter::initClients() {
     uint8_t num = this->newClients[i];
     if(num != 255) {
       if(sockServer.clientIsConnected(num)) {
-        Serial.printf("Initializing Socket Client %u\n", num);
+        LOG_DF("Initializing Socket Client %u\n", num);
         esp_task_wdt_reset();
         settings.emitSockets(num);
         somfy.emitState(num);
@@ -139,15 +169,15 @@ void SocketEmitter::wsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t
     switch(type) {
         case WStype_ERROR:
             if(length > 0)
-              Serial.printf("Socket Error: %s\n", payload);
+              LOG_EF("Socket Error: %s\n", payload);
             else
-              Serial.println("Socket Error: \n");
+              LOG_ELN("Socket Error: \n");
             break;
         case WStype_DISCONNECTED:
             if(length > 0)
-              Serial.printf("Socket [%u] Disconnected!\n [%s]", num, payload);
+              LOG_IF("Socket [%u] Disconnected!\n [%s]", num, payload);
             else
-              Serial.printf("Socket [%u] Disconnected!\n", num);
+              LOG_IF("Socket [%u] Disconnected!\n", num);
             for(uint8_t i = 0; i < SOCK_MAX_ROOMS; i++) {
               sockEmit.rooms[i].leave(num);
             }
@@ -155,7 +185,22 @@ void SocketEmitter::wsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t
         case WStype_CONNECTED:
             {
                 IPAddress ip = sockServer.remoteIP(num);
-                Serial.printf("Socket [%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+                LOG_IF("Socket [%u] Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
+                // Le jeton d'API est transmis dans l'URL du handshake (?apikey=...) : sans jeton valide
+                // le client est déconnecté avant tout envoi d'état.
+                char token[65] = "";
+                const char *q = strstr((const char *)payload, "apikey=");
+                if(q) {
+                  q += 7;
+                  size_t i = 0;
+                  while(q[i] != '\0' && q[i] != '&' && i < sizeof(token) - 1) { token[i] = q[i]; i++; }
+                  token[i] = '\0';
+                }
+                if(!webServer.isTokenValid(ip, token, false)) {
+                  LOG_EF("Socket [%u] rejected: invalid API key\n", num);
+                  sockServer.disconnect(num);
+                  break;
+                }
                 // Send all the current shade settings to the client.
                 sockServer.sendTXT(num, "Connected");
                 //sockServer.loop();
@@ -167,16 +212,16 @@ void SocketEmitter::wsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t
               // In this instance the client wants to join a room.  Let's do some
               // work to get the ordinal of the room that the client wants to join.
               uint8_t roomNum = atoi((char *)&payload[5]);
-              Serial.printf("Client %u joining room %u\n", num, roomNum);
+              LOG_DF("Client %u joining room %u\n", num, roomNum);
               if(roomNum < SOCK_MAX_ROOMS) sockEmit.rooms[roomNum].join(num);
             }
             else if(strncmp((char *)payload, "leave:", 6) == 0) {
               uint8_t roomNum = atoi((char *)&payload[6]);
-              Serial.printf("Client %u leaving room %u\n", num, roomNum);
+              LOG_DF("Client %u leaving room %u\n", num, roomNum);
               if(roomNum < SOCK_MAX_ROOMS) sockEmit.rooms[roomNum].leave(num);
             }
             else {
-              Serial.printf("Socket [%u] text: %s\n", num, payload);
+              LOG_DF("Socket [%u] text: %s\n", num, payload);
             }
             // send message to client
             // webSocket.sendTXT(num, "message here");
@@ -185,17 +230,17 @@ void SocketEmitter::wsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t
             // sockServer.broadcastTXT("message here");
             break;
         case WStype_BIN:
-            Serial.printf("[%u] get binary length: %u\n", num, length);
+            LOG_DF("[%u] get binary length: %u\n", num, length);
             //hexdump(payload, length);
 
             // send message to client
             // sockServer.sendBIN(num, payload, length);
             break;
         case WStype_PONG:
-            //Serial.printf("Pong from %u\n", num);
+            //LOG_DF("Pong from %u\n", num);
             break;
         case WStype_PING:
-            //Serial.printf("Ping from %u\n", num);
+            //LOG_DF("Ping from %u\n", num);
             break;
         default:
             break;

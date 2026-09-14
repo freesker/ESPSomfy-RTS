@@ -44,6 +44,25 @@ static void _rtrim(char *str) {
   while(e >= 0 && (str[e] == ' ' || str[e] == '\n' || str[e] == '\r' || str[e] == '\t' || str[e] == '"')) {str[e] = '\0'; e--;}
 }
 [[maybe_unused]] static void _trim(char *str) { _ltrim(str); _rtrim(str); }
+// Copie un nom saisi par l'utilisateur (pièce, volet, groupe) en retirant ce qui casserait le fichier
+// de configuration (virgule, guillemet, retour à la ligne) ou permettrait une injection HTML dans
+// l'interface (< > & ' \). Les caractères de contrôle sont ignorés.
+[[maybe_unused]] static void sanitizeName(char *dest, const char *src, size_t size) {
+  size_t j = 0;
+  if(src) {
+    for(size_t i = 0; src[i] != '\0' && j < size - 1; i++) {
+      unsigned char c = (unsigned char)src[i];
+      if(c < 0x20 || c == 0x7F || strchr("<>&\"',\\", c)) continue;
+      dest[j++] = (char)c;
+    }
+  }
+  dest[j] = '\0';
+  _trim(dest);
+}
+// Comparaisons de temps robustes au débordement de millis() (49,7 jours) : toujours soustraire
+// l'instant de départ, jamais comparer des sommes.
+[[maybe_unused]] static inline bool elapsed(uint32_t since, uint32_t interval) { return (uint32_t)(millis() - since) >= interval; }
+[[maybe_unused]] static inline bool reached(uint32_t when) { return (int32_t)(millis() - when) >= 0; }
 struct rebootDelay_t {
   bool reboot = false;
   int rebootTime = 0;
@@ -72,28 +91,4 @@ class Timestamp {
     static time_t now();
     static unsigned long epoch();
 };
-// Sort an array
-template<typename AnyType> void sortArray(AnyType array[], size_t sizeOfArray);
-// Sort in reverse
-template<typename AnyType> void sortArrayReverse(AnyType array[], size_t sizeOfArray);
-// Sort an array with custom comparison function
-template<typename AnyType> void sortArray(AnyType array[], size_t sizeOfArray, bool (*largerThan)(AnyType, AnyType));
-// Sort in reverse with custom comparison function
-template<typename AnyType> void sortArrayReverse(AnyType array[], size_t sizeOfArray, bool (*largerThan)(AnyType, AnyType));
-namespace ArduinoSort {
-  template<typename AnyType> bool builtinLargerThan(AnyType first, AnyType second) { return first > second; }
-  //template<> bool builtinLargerThan(char* first, char* second) { return strcmp(first, second) > 0; }
-  template<typename AnyType> void insertionSort(AnyType array[], size_t sizeOfArray, bool reverse, bool (*largerThan)(AnyType, AnyType)) { for (size_t i = 1; i < sizeOfArray; i++) {
-    for (size_t j = i; j > 0 && (largerThan(array[j-1], array[j]) != reverse); j--) {
-        AnyType tmp = array[j-1];
-        array[j-1] = array[j];
-        array[j] = tmp;
-      }
-    }
-  }
-}
-template<typename AnyType> void sortArray(AnyType array[], size_t sizeOfArray) { ArduinoSort::insertionSort(array, sizeOfArray, false, ArduinoSort::builtinLargerThan); }
-template<typename AnyType> void sortArrayReverse(AnyType array[], size_t sizeOfArray) { ArduinoSort::insertionSort(array, sizeOfArray, true, ArduinoSort::builtinLargerThan); }
-template<typename AnyType> void sortArray(AnyType array[], size_t sizeOfArray, bool (*largerThan)(AnyType, AnyType)) { ArduinoSort::insertionSort(array, sizeOfArray, false, largerThan); }
-template<typename AnyType> void sortArrayReverse(AnyType array[], size_t sizeOfArray, bool (*largerThan)(AnyType, AnyType)) { ArduinoSort::insertionSort(array, sizeOfArray, true, largerThan); }
 #endif

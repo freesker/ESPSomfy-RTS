@@ -1,5 +1,12 @@
 //var hst = '192.168.1.208';
 var hst = '192.168.1.152';
+// Noms de jours et de mois utilisés par les masques de format de date (ddd, dddd, MMM, MMMM).
+const formatType = {
+    DAYS: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+    MONTHS: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+};
+// Etat partagé avec les gestionnaires inline de la télécommande virtuelle (index.html).
+var mouseDown = false;
 //var hst = '192.168.1.159';
 var _rooms = [{ roomId: 0, name: 'Home' }];
 
@@ -242,6 +249,23 @@ var httpStatusText = {
     '504': 'Gateway Timeout',
     '505': 'HTTP Version Not Supported'
 };
+// Un 401 signifie que le jeton n'est plus valide (nouveau PIN, redémarrage) : ramener l'écran de connexion.
+function handleUnauthorized(status) {
+    if (status === 401 && security.type !== 0 && document.getElementById('divUnauthenticated').style.display === 'none') {
+        security.authenticated = false;
+        security.apiKey = '';
+        security.authUser();
+    }
+}
+// Variante « promesse » de getJSONSync pour enchaîner les chargements avec await.
+function getJSONAsync(url, cb) {
+    return new Promise((resolve) => {
+        getJSONSync(url, (err, obj) => {
+            try { cb(err, obj); }
+            finally { resolve(); }
+        });
+    });
+}
 function getJSON(url, cb) {
     let xhr = new XMLHttpRequest();
     console.log({ get: url });
@@ -255,7 +279,8 @@ function getJSON(url, cb) {
             err.htmlError = status;
             err.service = `GET ${url}`;
             if (typeof err.desc === 'undefined') err.desc = xhr.statusText || httpStatusText[xhr.status || 500];
-            cb(xhr.response, null);
+            handleUnauthorized(status);
+            cb(err, null);
         }
         else {
             cb(null, xhr.response);
@@ -282,10 +307,10 @@ function getJSONSync(url, cb) {
             err.htmlError = status;
             err.service = `GET ${url}`;
             if (typeof err.desc === 'undefined') err.desc = xhr.statusText || httpStatusText[xhr.status || 500];
-            cb(xhr.response, null);
+            handleUnauthorized(status);
+            cb(err, null);
         }
         else {
-            console.log({ get: url, obj:xhr.response });
             cb(null, xhr.response);
         }
         if (typeof overlay !== 'undefined') overlay.remove();
@@ -469,7 +494,9 @@ async function initSockets() {
     ui.waitMessage(document.getElementById('divContainer')).classList.add('socket-wait');
     let host = window.location.protocol === 'file:' ? hst : window.location.hostname;
     try {
-        socket = new WebSocket(`ws://${host}:8080/`);
+        const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const wsAuth = security.apiKey ? `?apikey=${encodeURIComponent(security.apiKey)}` : '';
+        socket = new WebSocket(`${wsProto}://${host}:8080/${wsAuth}`);
         socket.onmessage = (evt) => {
             if (evt.data.startsWith('42')) {
                 let ndx = evt.data.indexOf(',');
@@ -638,6 +665,11 @@ async function init() {
     mqtt.init();
     firmware.init();
 }
+// Échappe une valeur venue de l'appareil (nom de volet, SSID, message) avant insertion dans du HTML.
+function esc(val) {
+    if (val === null || typeof val === 'undefined') return '';
+    return String(val).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 class UIBinder {
     setValue(el, val) {
         if (el instanceof HTMLInputElement) {
@@ -683,7 +715,7 @@ class UIBinder {
             }
             el.selectedIndex = ndx;
         }
-        else if (el instanceof HTMLElement) el.innerHTML = val;
+        else if (el instanceof HTMLElement) el.textContent = val;
     }
     getValue(el, defVal) {
         let val = defVal;
@@ -760,7 +792,7 @@ class UIBinder {
                             tval = tval.fmt(fld.getAttribute('data-fmtmask'), fld.getAttribute('data-fmtempty') || '');
                             break;
                         case 'duration':
-                            tval = ui.formatDuration(tval, $this.attr('data-fmtmask'));
+                            tval = ui.formatDuration(tval);
                             break;
                     }
                     this.setValue(fld, tval);
@@ -802,6 +834,7 @@ class UIBinder {
                 if (ndx !== -1) {
                     var v = s.substring(0, ndx);
                     var ndxEnd = s.lastIndexOf(']');
+                    var k, a;
                     var ord = parseInt(s.substring(ndx + 1, ndxEnd), 10);
                     if (isNaN(ord)) ord = 0;
                     if (typeof arrayRef[sRef] === 'undefined') {
@@ -861,15 +894,15 @@ class UIBinder {
             case 'number':
                 return this.parseNumber(val);
             case 'date':
-                if (typeof val === 'string') return Date.parseISO(val);
-                else if (typeof val === 'number') return new Date(number);
+                if (typeof val === 'string') return new Date(val);
+                else if (typeof val === 'number') return new Date(val);
                 else if (typeof val.getMonth === 'function') return val;
                 return undefined;
             case 'time':
                 var dt = new Date();
                 if (typeof val === 'number') {
                     dt.setHours(0, 0, 0);
-                    dt.addMinutes(tval);
+                    dt.setMinutes(dt.getMinutes() + val);
                     return dt;
                 }
                 else if (typeof val === 'string' && val.indexOf(':') !== -1) {
@@ -917,6 +950,10 @@ class UIBinder {
         el.appendChild(div);
         return div;
     }
+    formatDuration(ms) {
+        let s = Math.floor((ms || 0) / 1000);
+        return `${Math.floor(s / 3600)}:${Math.floor((s % 3600) / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+    }
     serviceError(el, err) {
         let title = 'Service Error'
         if (arguments.length === 1) {
@@ -953,7 +990,7 @@ class UIBinder {
         console.log(err);
         let div = this.errorMessage(`${err.htmlError || 500}:${title}`);
         let sub = div.querySelector('.sub-message');
-        sub.innerHTML = `<div><label>Service:</label>${err.service}</div><div style="font-size:22px;">${msg}</div>`;
+        sub.innerHTML = `<div><label>Service:</label>${esc(err.service)}</div><div style="font-size:22px;">${esc(msg)}</div>`;
         return div;
     }
     socketError(el, msg) {
@@ -1129,7 +1166,6 @@ class UIBinder {
             overlay.remove();
             if (err) ui.serviceError(err);
             else {
-                console.log(security);
                 general.setSecurityConfig(security);
             }
         });
@@ -1231,7 +1267,6 @@ class Security {
         let msg = pnl.querySelector('#spanLoginMessage');
         msg.innerHTML = '';
         let sec = ui.fromElement(pnl).login;
-        console.log(sec);
         let pin = '';
         switch (sec.type) {
             case 1:
@@ -1249,19 +1284,17 @@ class Security {
             else {
                 console.log(log);
                 if (log.success) {
+                    this.apiKey = log.apiKey;
+                    this.authenticated = true;
                     if (typeof socket === 'undefined' || !socket) (async () => { await initSockets(); })();
-                    //ui.setMode(mode);
-
                     document.getElementById('divUnauthenticated').style.display = 'none';
                     document.getElementById('divAuthenticated').style.display = '';
                     document.getElementById('divContainer').setAttribute('data-auth', true);
-                    this.apiKey = log.apiKey;
-                    this.authenticated = true;
                     let evt = new CustomEvent('afterlogin', { detail: { authenticated: true } });
                     document.getElementById('divContainer').dispatchEvent(evt);
                 }
                 else
-                    msg.innerHTML = log.msg;
+                    msg.textContent = log.msg;
             }
         });
     }
@@ -1405,9 +1438,9 @@ class General {
     { city: 'Pacific/Midway',  code: 'SST11' },
     { city: 'Pacific/Norfolk', code: '<+11>-11<+12>,M10.1.0,M4.1.0/3' }
     ];
-    loadGeneral() {
+    async loadGeneral() {
         let pnl = document.getElementById('divSystemOptions');
-        getJSONSync('/modulesettings', (err, settings) => {
+        await getJSONAsync('/modulesettings', (err, settings) => {
             if (err) {
                 console.log(err);
             }
@@ -1495,12 +1528,7 @@ class General {
             security: {
                 type: security.type, username: security.username, password: security.password,
                 permissions: { configOnly: makeBool(security.permissions & 0x01) },
-                pin: {
-                    d0: security.pin[0],
-                    d1: security.pin[1],
-                    d2: security.pin[2],
-                    d3: security.pin[3]
-                }
+                pin: { d0: '', d1: '', d2: '', d3: '' }
             }
         };
         ui.toElement(document.getElementById('divSecurityOptions'), obj);
@@ -1539,17 +1567,16 @@ class General {
         }
     }
     saveSecurity() {
-        let security = ui.fromElement(document.getElementById('divSecurityOptions')).security;
-        console.log(security);
-        let sec = { type: security.type, username: security.username, password: security.password, pin: '', perm: 0 };
+        let form = ui.fromElement(document.getElementById('divSecurityOptions')).security;
+        let sec = { type: form.type, username: form.username, password: form.password, pin: '', permissions: 0 };
+        const passwordUnchanged = sec.password === '********';
         // Pin entry.
         for (let i = 0; i < 4; i++) {
-            sec.pin += security.pin[`d${i}`];
+            sec.pin += form.pin[`d${i}`] || '';
         }
-        sec.permissions |= security.permissions.configOnly ? 0x01 : 0x00;
+        sec.permissions |= form.permissions.configOnly ? 0x01 : 0x00;
         let confirm = '';
-        console.log(sec);
-        if (security.type === 1) { // Pin Entry
+        if (form.type === 1) { // Pin Entry
             // Make sure our pin is 4 digits.
             if (sec.pin.length !== 4) {
                 ui.errorMessage('Invalid Pin').querySelector('.sub-message').innerHTML = 'Pins must be exactly 4 alpha-numeric values in length.  Please enter a complete pin.';
@@ -1557,7 +1584,7 @@ class General {
             }
             confirm = '<p>Please keep your PIN safe and above all remember it.  The only way to recover a lost PIN is to completely reload the onboarding firmware which will wipe out your configuration.</p><p>Have you stored your PIN in a safe place?</p>';
         }
-        else if (security.type === 2) { // Password
+        else if (form.type === 2) { // Password
             if (sec.username.length === 0) {
                 ui.errorMessage('No Username Provided').querySelector('.sub-message').innerHTML = 'You must provide a username for password security.';
                 return;
@@ -1567,20 +1594,20 @@ class General {
                 return;
             }
 
-            if (sec.password.length === 0) {
+            if (!passwordUnchanged && sec.password.length === 0) {
                 ui.errorMessage('No Password Provided').querySelector('.sub-message').innerHTML = 'You must provide a password for password security.';
                 return;
             }
-            if (sec.password.length > 32) {
+            if (!passwordUnchanged && sec.password.length > 32) {
                 ui.errorMessage('Invalid Password').querySelector('.sub-message').innerHTML = 'The maximum password length is 32 characters.';
                 return;
             }
 
-            if (security.repeatpassword.length === 0) {
+            if (!passwordUnchanged && form.repeatpassword.length === 0) {
                 ui.errorMessage('Re-enter Password').querySelector('.sub-message').innerHTML = 'You must re-enter the password in the Re-enter Password field.';
                 return;
             }
-            if (sec.password !== security.repeatpassword) {
+            if (!passwordUnchanged && sec.password !== form.repeatpassword) {
                 ui.errorMessage('Passwords do not Match').querySelector('.sub-message').innerHTML = 'Please re-enter the password exactly as you typed it in the Re-enter Password field.';
                 return;
             }
@@ -1590,8 +1617,9 @@ class General {
             putJSONSync('/saveSecurity', sec, (err, objApiKey) => {
                 prompt.remove();
                 if (err) ui.serviceError(err);
-                else {
-                    console.log(objApiKey);
+                else if (objApiKey && objApiKey.apiKey) {
+                    security.apiKey = objApiKey.apiKey;
+                    security.authenticated = true;
                 }
             });
         });
@@ -1665,10 +1693,9 @@ class Wifi {
         }
     }
     onDHCPClicked(cb) { document.getElementById('divStaticIP').style.display = cb.checked ? 'none' : ''; }
-    loadNetwork() {
+    async loadNetwork() {
         let pnl = document.getElementById('divNetAdapter');
-        getJSONSync('/networksettings', (err, settings) => {
-            console.log(settings);
+        await getJSONAsync('/networksettings', (err, settings) => {
             if (err) {
                 ui.serviceError(err);
             }
@@ -1693,7 +1720,7 @@ class Wifi {
                 ui.toElement(document.getElementById('divDHCP'), settings);
                 document.getElementById('divETHSettings').style.display = settings.ethernet.boardType === 0 ? '' : 'none';
                 document.getElementById('divStaticIP').style.display = settings.ip.dhcp ? 'none' : '';
-                document.getElementById('spanCurrentIP').innerHTML = settings.ip.ip;
+                document.getElementById('spanCurrentIP').textContent = settings.ip.ip;
                 this.useEthernetClicked();
                 this.hiddenSSIDClicked();
             }
@@ -1748,7 +1775,7 @@ class Wifi {
         nets.sort((a, b) => b.strength - a.strength);
         for (let i = 0; i < nets.length; i++) {
             let ap = nets[i];
-            div += `<div class="wifiSignal" onclick="wifi.selectSSID(this);" data-channel="${ap.channel}" data-encryption="${ap.encryption}" data-strength="${ap.strength}" data-mac="${ap.macAddress}"><span class="ssid">${ap.name}</span><span class="strength">${this.displaySignal(ap.strength)}</span></div>`;
+            div += `<div class="wifiSignal" onclick="wifi.selectSSID(this);" data-channel="${esc(ap.channel)}" data-encryption="${esc(ap.encryption)}" data-strength="${esc(ap.strength)}" data-mac="${esc(ap.macAddress)}"><span class="ssid">${esc(ap.name)}</span><span class="strength">${this.displaySignal(ap.strength)}</span></div>`;
         }
         let divAps = document.getElementById('divAps');
         divAps.setAttribute('data-lastloaded', new Date().getTime());
@@ -1900,7 +1927,7 @@ class Wifi {
     procWifiStrength(strength) {
         //console.log(strength);
         let ssid = strength.ssid || strength.name;
-        document.getElementById('spanNetworkSSID').innerHTML = !ssid || ssid === '' ? '-------------' : ssid;
+        document.getElementById('spanNetworkSSID').textContent = !ssid || ssid === '' ? '-------------' : ssid;
         document.getElementById('spanNetworkChannel').innerHTML = isNaN(strength.channel) || strength.channel < 0 ? '--' : strength.channel;
         let cssClass = 'waveStrength-' + (isNaN(strength.strength) || strength > 0 ? -100 : this.calcWaveStrength(strength.strength));
         let elWave = document.getElementById('divNetworkStrength').children[0];
@@ -1961,7 +1988,7 @@ class Somfy {
         this.loadPins('out', document.getElementById('selShadeGPIOMy'));
     }
     async loadSomfy() {
-        getJSONSync('/controller', (err, somfy) => {
+        await getJSONAsync('/controller', (err, somfy) => {
             if (err) {
                 console.log(err);
                 ui.serviceError(err);
@@ -2170,7 +2197,7 @@ class Somfy {
         let room = _rooms.find(x => x.roomId === roomId) || { roomId: 0, name: '' };
         let rs = document.getElementById('divRoomSelector');
         rs.setAttribute('data-roomid', roomId);
-        rs.querySelector('span').innerHTML = room.name;
+        rs.querySelector('span').textContent = room.name;
         document.getElementById('divRoomSelector-list').style.display = 'none';
         let ss = document.getElementById('divShadeControls');
         ss.setAttribute('data-roomid', roomId);
@@ -2202,10 +2229,10 @@ class Somfy {
             let room = rooms[i];
             divCfg += `<div class="somfyRoom room-draggable" draggable="true" data-roomid="${room.roomId}">`;
             divCfg += `<div class="button-outline" onclick="somfy.openEditRoom(${room.roomId});"><i class="icss-edit"></i></div>`;
-            divCfg += `<span class="room-name">${room.name}</span>`;
+            divCfg += `<span class="room-name">${esc(room.name)}</span>`;
             divCfg += `<div class="button-outline" onclick="somfy.deleteRoom(${room.roomId});"><i class="icss-trash"></i></div>`;
             divCfg += '</div>';
-            divOpts += `<option value="${room.roomId}">${room.name}</option>`;
+            divOpts += `<option value="${room.roomId}">${esc(room.name)}</option>`;
             _rooms.push(room);
             divCtl += `<div class='room-row' data-roomid="${room.roomId}" onclick="somfy.selectRoom(${room.roomId});event.stopPropagation();">${room.name}</div>`;
         }
@@ -2275,8 +2302,8 @@ class Somfy {
             //divCfg += `<i class="shade-icon" data-position="${shade.position || 0}%"></i>`;
             //divCfg += `<span class="shade-name">${shade.name}</span>`;
             divCfg += '<div class="shade-name">';
-            divCfg += `<div class="cfg-room">${room.name}</div>`;
-            divCfg += `<div class="">${shade.name}</div>`;
+            divCfg += `<div class="cfg-room">${esc(room.name)}</div>`;
+            divCfg += `<div class="">${esc(shade.name)}</div>`;
             divCfg += '</div>'
 
             divCfg += `<span class="shade-address">${shade.remoteAddress}</span>`;
@@ -2296,21 +2323,21 @@ class Somfy {
             divCtl += shade.tiltType !== 0 ? `<i class="icss-window-tilt" data-shadeid="${shade.shadeId}" data-tiltposition="${shade.tiltPosition}"></i></div>` : '</div>';
             divCtl += `<div class="indicator indicator-wind"><i class="icss-warning"></i></div><div class="indicator indicator-sun"><i class="icss-sun"></i></div>`;
             divCtl += `<div class="shade-name">`;
-            divCtl += `<span class="shadectl-room">${room.name}</span>`;
-            divCtl += `<span class="shadectl-name">${shade.name}</span>`;
+            divCtl += `<span class="shadectl-room">${esc(room.name)}</span>`;
+            divCtl += `<span class="shadectl-name">${esc(shade.name)}</span>`;
             divCtl += `<span class="shadectl-mypos"><label class="my-pos"></label><span class="my-pos">${shade.myPos === -1 ? '---' : shade.myPos + '%'}</span><label class="my-pos-tilt"></label><span class="my-pos-tilt">${shade.myTiltPos === -1 ? '---' : shade.myTiltPos + '%'}</span >`;
             divCtl += '</div>';
             divCtl += `<div class="shadectl-buttons" data-shadeType="${shade.shadeType}">`;
             divCtl += `<div class="button-light cmd-button" data-cmd="light" data-shadeid="${shade.shadeId}" data-on="${shade.flags & 0x08 ? 'true' : 'false'}" style="${!shade.light ? 'display:none' : ''}"><i class="icss-lightbuld-c"></i><i class="icss-lightbulb-o"></i></div>`;
             divCtl += `<div class="button-sunflag cmd-button" data-cmd="sunflag" data-shadeid="${shade.shadeId}" data-on="${shade.flags & 0x01 ? 'true' : 'false'}" style="${!shade.sunSensor ? 'display:none' : ''}"><i class="icss-sun-c"></i><i class="icss-sun-o"></i></div>`;
-            divCtl += `<div class="button-outline cmd-button" data-cmd="up" data-shadeid="${shade.shadeId}"><i class="icss-somfy-up"></i></div>`;
+            divCtl += `<div class="button-outline cmd-button" role="button" tabindex="0" aria-label="up" data-cmd="up" data-shadeid="${shade.shadeId}"><i class="icss-somfy-up"></i></div>`;
             divCtl += `<div class="button-outline cmd-button my-button" data-cmd="my" data-shadeid="${shade.shadeId}" style="font-size:2em;padding:10px;"><span>my</span></div>`;
-            divCtl += `<div class="button-outline cmd-button" data-cmd="down" data-shadeid="${shade.shadeId}"><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>`;
+            divCtl += `<div class="button-outline cmd-button" role="button" tabindex="0" aria-label="down" data-cmd="down" data-shadeid="${shade.shadeId}"><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>`;
             divCtl += `<div class="button-outline cmd-button toggle-button" style="width:127px;text-align:center;border-radius:33%;font-size:2em;padding:10px;" data-cmd="toggle" data-shadeid="${shade.shadeId}"><i class="icss-somfy-toggle" style="margin-top:-4px;"></i></div>`;
             divCtl += '</div></div>';
             divCtl += '</div>';
             let opt = document.createElement('option');
-            opt.innerHTML = shade.name;
+            opt.textContent = shade.name;
             opt.setAttribute('data-address', shade.remoteAddress);
             opt.setAttribute('data-type', 'shade');
             opt.setAttribute('data-shadetype', shade.shadeType);
@@ -2593,8 +2620,8 @@ class Somfy {
                 divCfg += `<div class="button-outline" onclick="somfy.openEditGroup(${group.groupId});"><i class="icss-edit"></i></div>`;
                 //divCfg += `<i class="Group-icon" data-position="${Group.position || 0}%"></i>`;
                 divCfg += '<div class="group-name">';
-                divCfg += `<div class="cfg-room">${room.name}</div>`;
-                divCfg += `<div class="">${group.name}</div>`;
+                divCfg += `<div class="cfg-room">${esc(room.name)}</div>`;
+                divCfg += `<div class="">${esc(group.name)}</div>`;
                 divCfg += '</div>'
                 divCfg += `<span class="group-address">${group.remoteAddress}</span>`;
                 divCfg += `<div class="button-outline" onclick="somfy.deleteGroup(${group.groupId});"><i class="icss-trash"></i></div>`;
@@ -2602,8 +2629,8 @@ class Somfy {
 
                 divCtl += `<div class="somfyGroupCtl" style="${roomId === 0 || roomId === room.roomId ? '' : 'display:none'}" data-groupId="${group.groupId}" data-roomid="${group.roomId}" data-remoteaddress="${group.remoteAddress}">`;
                 divCtl += `<div class="group-name">`;
-                divCtl += `<span class="groupctl-room">${room.name}</span>`;
-                divCtl += `<span class="groupctl-name">${group.name}</span>`;
+                divCtl += `<span class="groupctl-room">${esc(room.name)}</span>`;
+                divCtl += `<span class="groupctl-name">${esc(group.name)}</span>`;
                 divCtl += `<div class="groupctl-shades">`;
                 if (typeof group.linkedShades !== 'undefined') {
                     divCtl += `<label>Members:</label><span>${group.linkedShades.length}`;
@@ -2624,7 +2651,7 @@ class Somfy {
                 divCtl += `<div class="button-outline cmd-button" data-cmd="down" data-groupid="${group.groupId}"><i class="icss-somfy-down" style="margin-top:-4px;"></i></div>`;
                 divCtl += '</div></div>';
                 let opt = document.createElement('option');
-                opt.innerHTML = group.name;
+                opt.textContent = group.name;
                 opt.setAttribute('data-address', group.remoteAddress);
                 opt.setAttribute('data-type', 'group');
                 opt.setAttribute('data-groupid', group.groupId);
@@ -2787,7 +2814,7 @@ class Somfy {
         for (let i = 0; i < group.linkedShades.length; i++) {
             let shade = group.linkedShades[i];
             divCfg += `<div class="linked-shade" data-shadeid="${shade.shadeId}" data-remoteaddress="${shade.remoteAddress}">`;
-            divCfg += `<span class="linkedshade-name">${shade.name}</span>`;
+            divCfg += `<span class="linkedshade-name">${esc(shade.name)}</span>`;
             divCfg += `<span class="linkedshade-address">${shade.remoteAddress}</span>`;
             divCfg += `<div class="button-outline" onclick="somfy.unlinkGroupShade(${group.groupId}, ${shade.shadeId});"><i class="icss-trash"></i></div>`;
             divCfg += '</div>';
@@ -2912,7 +2939,7 @@ class Somfy {
                 proto = '-V';
                 break;
         }
-        let html = `<span>${frame.encKey}</span><span>${frame.address}</span><span>${frame.command}<sup>${frame.stepSize ? frame.stepSize : ''}</sup></span><span>${frame.rcode}</span><span>${frame.rssi}dBm</span><span>${frame.bits}${proto}</span><span>${fnFmtTime(frame.time)}</span><div class="frame-pulses">`;
+        let html = `<span>${esc(frame.encKey)}</span><span>${esc(frame.address)}</span><span>${esc(frame.command)}<sup>${frame.stepSize ? esc(frame.stepSize) : ''}</sup></span><span>${esc(frame.rcode)}</span><span>${frame.rssi}dBm</span><span>${frame.bits}${proto}</span><span>${fnFmtTime(frame.time)}</span><div class="frame-pulses">`;
         for (let i = 0; i < frame.pulses.length; i++) {
             if (i !== 0) html += ',';
             html += `${frame.pulses[i]}`;
@@ -2921,6 +2948,11 @@ class Somfy {
         row.innerHTML = html;
         frames.prepend(row);
         this.frames.push(frame);
+        // Journal borné : chaque trame reçue ajoutait une ligne DOM et un objet pour toujours.
+        while (this.frames.length > 200) {
+            this.frames.shift();
+            if (frames.lastElementChild) frames.lastElementChild.remove();
+        }
     }
     JSONPretty(obj, indent = 2) {
         if (Array.isArray(obj)) {
@@ -3450,7 +3482,7 @@ class Somfy {
                             prompt.remove;
                         });
                     });
-                    prompt.querySelector('.sub-message').innerHTML = `<p>If this shade was previously paired with a motor, you should first unpair it from the motor and remove it from any groups.  Otherwise its address will remain in the motor memory.</p><p>Press YES to delete ${shade.name} or NO to cancel this operation.</p>`;
+                    prompt.querySelector('.sub-message').innerHTML = `<p>If this shade was previously paired with a motor, you should first unpair it from the motor and remove it from any groups.  Otherwise its address will remain in the motor memory.</p><p>Press YES to delete ${esc(shade.name)} or NO to cancel this operation.</p>`;
                 }
             });
         }
@@ -3477,7 +3509,7 @@ class Somfy {
                             });
 
                         });
-                        prompt.querySelector('.sub-message').innerHTML = `<p>Press YES to delete the ${group.name} group or NO to cancel this operation.</p>`;
+                        prompt.querySelector('.sub-message').innerHTML = `<p>Press YES to delete the ${esc(group.name)} group or NO to cancel this operation.</p>`;
                         
                     }
                 }
@@ -3988,13 +4020,13 @@ class Somfy {
                     // Add in all the available shades.
                     let selAvail = div.querySelector('#selAvailShades');
                     let grpName = div.querySelector('#divGroupName');
-                    if (grpName) grpName.innerHTML = options.name;
+                    if (grpName) grpName.textContent = options.name;
                     for (let i = 0; i < options.availShades.length; i++) {
                         let shade = options.availShades[i];
                         selAvail.options.add(new Option(shade.name, shade.shadeId));
                     }
                     let divWizShadeName = div.querySelector('#divWizShadeName');
-                    if (divWizShadeName) divWizShadeName.innerHTML = options.availShades[0].name;
+                    if (divWizShadeName) divWizShadeName.textContent = options.availShades[0].name;
                 }
                 else {
                     div.remove();
@@ -4084,9 +4116,9 @@ class Somfy {
                 if (typeof shade !== 'undefined') {
                     // Add in all the available shades.
                     let grpName = div.querySelector('#divGroupName');
-                    if (grpName) grpName.innerHTML = group.name;
+                    if (grpName) grpName.textContent = group.name;
                     let divWizShadeName = div.querySelector('#divWizShadeName');
-                    if (divWizShadeName) divWizShadeName.innerHTML = shade.name;
+                    if (divWizShadeName) divWizShadeName.textContent = shade.name;
                 }
                 else {
                     div.remove();
@@ -4224,11 +4256,10 @@ class MQTT {
     initialized = false;
     init() { this.initialized = true; }
     async loadMQTT() {
-        getJSONSync('/mqttsettings', (err, settings) => {
+        await getJSONAsync('/mqttsettings', (err, settings) => {
             if (err) 
                 console.log(err);
             else {
-                console.log(settings);
                 ui.toElement(document.getElementById('divMQTT'), { mqtt: settings });
                 document.getElementById('divDiscoveryTopic').style.display = settings.pubDisco ? '' : 'none';
             }
@@ -4270,6 +4301,50 @@ class MQTT {
     }
 }
 var mqtt = new MQTT();
+// SHA-256 (FIPS 180-4) pour vérifier l'intégrité des fichiers envoyés au boîtier : crypto.subtle
+// n'est pas disponible sur une origine http, donc l'implémentation est embarquée.
+function sha256Hex(buffer) {
+    const K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
+    const bytes = new Uint8Array(buffer);
+    const bitLen = bytes.length * 8;
+    const padLen = ((bytes.length + 9 + 63) >> 6) << 6;
+    const msg = new Uint8Array(padLen);
+    msg.set(bytes);
+    msg[bytes.length] = 0x80;
+    const dv = new DataView(msg.buffer);
+    dv.setUint32(padLen - 8, Math.floor(bitLen / 0x100000000));
+    dv.setUint32(padLen - 4, bitLen >>> 0);
+    let H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    const w = new Uint32Array(64);
+    const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+    for (let i = 0; i < padLen; i += 64) {
+        for (let t = 0; t < 16; t++) w[t] = dv.getUint32(i + t * 4);
+        for (let t = 16; t < 64; t++) {
+            const s0 = rotr(w[t - 15], 7) ^ rotr(w[t - 15], 18) ^ (w[t - 15] >>> 3);
+            const s1 = rotr(w[t - 2], 17) ^ rotr(w[t - 2], 19) ^ (w[t - 2] >>> 10);
+            w[t] = (w[t - 16] + s0 + w[t - 7] + s1) >>> 0;
+        }
+        let [a, b, c, d, e, f, g, h] = H;
+        for (let t = 0; t < 64; t++) {
+            const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+            const ch = (e & f) ^ (~e & g);
+            const t1 = (h + S1 + ch + K[t] + w[t]) >>> 0;
+            const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+            const maj = (a & b) ^ (a & c) ^ (b & c);
+            const t2 = (S0 + maj) >>> 0;
+            h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+        }
+        H = [(H[0] + a) >>> 0, (H[1] + b) >>> 0, (H[2] + c) >>> 0, (H[3] + d) >>> 0, (H[4] + e) >>> 0, (H[5] + f) >>> 0, (H[6] + g) >>> 0, (H[7] + h) >>> 0];
+    }
+    return H.map(x => x.toString(16).padStart(8, '0')).join('');
+}
 class Firmware {
     initialized = false;
     init() { this.initialized = true; }
@@ -4333,7 +4408,7 @@ class Firmware {
                 if (typeof overlay !== 'undefined') overlay.remove();
                 console.log('Aborted');
                 if (typeof overlay !== 'undefined') overlay.remove();
-                reject({ htmlError: status, service: 'GET /backup' });
+                reject({ htmlError: xhr.status, service: 'GET /backup' });
             };
             xhr.open('GET', baseUrl.length > 0 ? `${baseUrl}/backup` : '/backup', true);
             xhr.send();
@@ -4394,7 +4469,7 @@ class Firmware {
         let div = document.getElementById('divFirmwareUpdate');
         if (rel.available && rel.status === 0 && rel.checkForUpdate !== false) {
             div.style.color = 'black';
-            div.innerHTML = `<span>Firmware ${rel.fwVersion.name} Installed<span><span style="color:red"> ${rel.latest.name} Available</span>`;
+            div.innerHTML = `<span>Firmware ${esc(rel.fwVersion.name)} Installed<span><span style="color:red"> ${esc(rel.latest.name)} Available</span>`;
         }
         else {
             switch (rel.status) {
@@ -4413,7 +4488,7 @@ class Firmware {
                             inst.remove();
                             ui.errorMessage(e.desc);
                         }
-                        div.innerHTML = e.desc;
+                        div.textContent = e.desc;
                     }
                     else {
                         div.innerHTML = `Firmware update complete`;
@@ -4432,7 +4507,7 @@ class Firmware {
 
                 default:
                     div.style.color = 'black';
-                    div.innerHTML = `Firmware ${rel.fwVersion.name} Installed`;
+                    div.innerHTML = `Firmware ${esc(rel.fwVersion.name)} Installed`;
                     break;
             }
         }
@@ -4444,7 +4519,7 @@ class Firmware {
         let div = document.getElementById('divFirmwareUpdate');
         if (div) {
             div.style.color = 'red';
-            div.innerHTML = `Updating ${file} to ${prog.ver} ${pct}%`;
+            div.innerHTML = `Updating ${esc(file)} to ${esc(prog.ver)} ${pct}%`;
         }
         general.reloadApp = true;
         let git = document.getElementById('divGitInstall');
@@ -4472,7 +4547,7 @@ class Firmware {
                 console.log('Backup Complete');
             }
             catch (err) {
-                ui.serviceError(el, err);
+                ui.serviceError(err);
                 return;
             }
         }
@@ -4484,7 +4559,7 @@ class Firmware {
             else {
                 general.reloadApp = true;
                 // Change the display and allow the percentage to be shown when the socket emits the progress.
-                let html = `<div>Installing ${ver.name}</div><div style="font-size:.7em;margin-top:4px;">Please wait as the files are downloaded and installed.  Once the application update process starts you may no longer cancel the update as this will corrupt the downloaded files.</div>`;
+                let html = `<div>Installing ${esc(ver.name)}</div><div style="font-size:.7em;margin-top:4px;">Please wait as the files are downloaded and installed.  Once the application update process starts you may no longer cancel the update as this will corrupt the downloaded files.</div>`;
                 html += `<div class="progress-bar" id="progFirmwareDownload" style="--progress:0%;margin-top:10px;text-align:center;"></div>`;
                 html += `<label for="progFirmwareDownload" style="font-size:10pt;">Firmware Install Progress</label>`;
                 html += `<div class="progress-bar" id="progApplicationDownload" style="--progress:0%;margin-top:10px;text-align:center;"></div>`;
@@ -4592,12 +4667,12 @@ class Firmware {
             let ctx = { html: '', llvl: 0, lines: r.info.body.split('\r\n'), ndx: 0 };
             ctx.toHead = function (txt) {
                 let num = txt.indexOf(' ');
-                return `<h${num}>${txt.substring(num).trim()}</h${num}>`;
+                return `<h${esc(num)}>${esc(txt.substring(num).trim())}</h${esc(num)}>`;
             };
             ctx.toUL = function () {
                 let txt = this.lines[this.ndx++];
                 let tok = this.token(txt);
-                this.html += `<ul>${this.toLI(tok.txt)}`;
+                this.html += `<ul>${esc(this.toLI(tok.txt))}`;
                 while (this.ndx < this.lines.length) {
                     txt = this.lines[this.ndx];
                     let t = this.token(txt);
@@ -4612,7 +4687,7 @@ class Firmware {
                 }
                 this.html += '</ul>';
             };
-            ctx.toLI = function (txt) { return `<li>${txt.trim()}</li>`; }
+            ctx.toLI = function (txt) { return `<li>${esc(txt.trim())}</li>`; }
             ctx.token = function (txt) {
                 let tok = { ch: '', indent: 0, txt:'' }
                 for (let i = 0; i < txt.length; i++) {
@@ -4639,7 +4714,7 @@ class Firmware {
                         break;
                     case '':
                         this.ndx++;
-                        this.html += `<br/><div>${tok.txt}</div>`;
+                        this.html += `<br/><div>${esc(tok.txt)}</div>`;
                         break;
                     default:
                         this.ndx++;
@@ -4684,8 +4759,8 @@ class Firmware {
         let field = el.querySelector('input[type="file"]');
         let filename = field.value;
         console.log(filename);
+        let file = field.files[0];
         let formData = new FormData();
-        formData.append('file', field.files[0]);
         switch (service) {
             case '/updateApplication':
                 if (typeof filename !== 'string' || filename.length === 0) {
@@ -4746,12 +4821,14 @@ class Firmware {
                     ui.errorMessage(el, 'No restore options have been selected');
                     return;
                 }
-                console.log(data);
                 formData.append('data', JSON.stringify(data));
-                console.log(formData.get('data'));
-                //return;
                 break;
         }
+        // Les champs doivent précéder le fichier pour être lisibles par le boîtier à la fin du transfert.
+        if (service === '/updateFirmware' || service === '/updateApplication') {
+            formData.append('sha256', sha256Hex(await file.arrayBuffer()));
+        }
+        formData.append('file', file);
         let btnUpload = el.querySelector('button[id="btnUploadFile"]');
         let btnCancel = el.querySelector('button[id="btnClose"]');
         let btnBackup = el.querySelector('button[id="btnBackupCfg"]');
@@ -4765,6 +4842,7 @@ class Firmware {
         let xhr = new XMLHttpRequest();
         //xhr.open('POST', service, true);
         xhr.open('POST', baseUrl.length > 0 ? `${baseUrl}${service}` : service, true);
+        xhr.setRequestHeader('apikey', security.apiKey);
         xhr.upload.onprogress = function (evt) {
             let pct = evt.total ? Math.round((evt.loaded / evt.total) * 100) : 0;
             prog.style.setProperty('--progress', `${pct}%`);
@@ -4777,8 +4855,11 @@ class Firmware {
             ui.serviceError(el, err);
         };
         xhr.onload = function () {
-            console.log('File upload load called');
             btnCancel.innerText = 'Close';
+            if (xhr.status !== 200) {
+                ui.serviceError(el, xhr.responseText || xhr.status);
+                return;
+            }
             switch (service) {
                 case '/restore':
                     (async () => {

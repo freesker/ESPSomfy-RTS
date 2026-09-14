@@ -4,6 +4,7 @@
 #define configsettings_h
 #include "WResp.h"
 #define FW_VERSION "v2.4.7"
+#define SECRET_MASK "********"
 enum class conn_types_t : byte {
     unset = 0x00,
     wifi = 0x01,
@@ -43,15 +44,14 @@ struct appver_t {
 
 class BaseSettings {
   public:
-    bool loadFile(const char* filename);
     bool fromJSON(JsonObject &obj);
     bool toJSON(JsonObject &obj);
     void toJSON(JsonResponse &json);
     bool parseIPAddress(JsonObject &obj, const char *prop, IPAddress *);
     bool parseValueString(JsonObject &obj, const char *prop, char *dest, size_t size);
+    bool parseSecretString(JsonObject &obj, const char *prop, char *dest, size_t size, bool allowEmpty = true);
     int parseValueInt(JsonObject &obj, const char *prop, int defVal);
     double parseValueDouble(JsonObject &obj, const char *prop, double defVal);
-    bool saveFile(const char* filename);
     bool save();
     bool load();
 };
@@ -75,6 +75,8 @@ class WifiSettings: BaseSettings {
     bool hidden = false;
     char ssid[65] = "";
     char passphrase[65] = "";
+    char apPassphrase[65] = ""; // Clé WPA2 du point d'accès de secours, tirée au premier démarrage.
+    void ensureApPassphrase();
     //bool ssdpBroadcast = true;
     bool begin();
     bool fromJSON(JsonObject &obj);
@@ -139,7 +141,9 @@ class SecuritySettings: BaseSettings {
     char username[33] = "";
     char password[33] = "";
     char pin[5] = "";
+    char secret[65] = ""; // Clé HMAC aléatoire des jetons d'API, générée au premier démarrage.
     uint8_t permissions = 0;
+    void ensureSecret();
     bool begin();
     bool save();
     bool load();
